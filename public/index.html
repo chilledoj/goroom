@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="https://cdn.jsdelivr.net/npm/beercss@3.11.29/dist/cdn/beer.min.css" rel="stylesheet">
+  <link rel="icon" type="image/png" href="/gopher.png"/>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/beercss@3.11.29/dist/cdn/beer.min.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-colors@1.1.2/dist/cdn/material-dynamic-colors.min.js"></script>
+
+  <title>Test WS</title>
+  <style>
+    .offline{
+      filter: grayscale(80%);
+      filter: blur(5px);
+    }
+    </style>
+</head>
+<body>
+  <div class="overlay blur"></div>
+  <main class="responsive" id="app">
+    <section>
+      <div class="grid">
+        <div class="s3"><button id="getPlayerBtn">Get Player</button></div>
+        <div class="s9" id="player"></div>
+        <div class="s3">
+          <button class="small-round secondary" id="createRoom">Create Room</button>
+          <button class="small-round tertiary" id="refreshList">Get Rooms</button>
+          <ul id="roomList" class="list border">
+
+          </ul>
+        </div>
+        <div class="s9" id="roomDetails"></div>
+        <div class="s12 " id="room"></div>
+      </div>
+
+      <dialog id="playerEditDialog">
+        <h5>Player Edit</h5>
+        <form id="playerEditForm">
+          <div class="field border">
+            <input type="text" name="name" placeholder="Name">
+          </div>
+          <div class="field border">
+            <input type="text" name="shortname" placeholder="Shortname">
+          </div>
+          <div class="field border">
+            <input type="text" name="avatar" placeholder="avatar">
+          </div>
+          <nav class="right-align no-space">
+            <button type="submit">Save</button>
+            <button type="button" class="secondary" onclick="closeDialog()">Cancel</button>
+          </nav>
+        </form>
+      </dialog>
+    </section>
+  </main>
+
+
+<script>
+  let socket
+  let player = null;
+  let room = null;
+  let rooms = [];
+
+  function bigIntIdReviver (key,value, ctx){
+    console.log("JSON.PARSE", key, value,ctx.source)
+    return typeof value === "number" && key == "id"?BigInt(ctx.source):value
+  }
+
+  const playerDialogEl = document.getElementById('playerEditDialog')
+  const playerEditFormEl = document.getElementById('playerEditForm')
+  playerEditFormEl.addEventListener('submit', (e) => {
+    e.preventDefault()
+    const data = new FormData(e.target)
+
+    fetch(`/api/players/me`,{
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        name: data.get('name'),
+        shortname: data.get('shortname'),
+        avatar: data.get('avatar')
+      })
+    })
+    .then(async (res) => {
+
+      if(res.status !== 200){
+        const body = await res.text()
+        throw new Error(body)
+      }
+      const body = await res.json()
+      return body
+    })
+    .then(data => {
+      console.log(data)
+      player = data
+      renderPlayer(player)
+      closeDialog()
+    })
+            .catch(err => {
+              console.log(err)
+            })
+
+  })
+
+  const openDialog = () => {
+    playerEditFormEl.elements["name"].value = player.name
+    playerEditFormEl.elements["shortname"].value = player.shortname
+    playerEditFormEl.elements["avatar"].value = player.avatar
+
+    playerDialogEl.showModal()
+  }
+  const closeDialog = () => {
+    playerDialogEl.close()
+  }
+
+  function renderPlayer(data){
+    document.getElementById('player').innerHTML = `<article class="border fill">
+  <div class="row">
+      <img class="circle large" src="/images/avatar/${data.avatar}.png" alt="Avatar">
+      <div class="max grid">
+        <div class="s6">
+            <h5 contenteditable="true">${data.name}</h5>
+            <p>${data.id} - (${data.shortname}). Player: ${data.playerRef}</p>
+        </div>
+        <div class="s6">
+            <button class="chip fill">${data.isNew?"NEW":"USER"}</button>
+            <button class="small-round secondary" onClick="openDialog()"><i>edit</i> Edit</button>
+        </div>
+      </div>
+
+    </div>
+</article>`
+  }
+
+  document.getElementById('getPlayerBtn').addEventListener('click', () => {
+    fetch('/api/players/me')
+            .then(res => res.text())
+            .then(body => JSON.parse(body,bigIntIdReviver))
+      .then(data => {
+        player = data;
+        renderPlayer(player)
+      })
+      .catch(err => {
+        console.log(err)
+      })
+  })
+
+  function playerAvatar(player){
+    return `<div>
+<img src="/images/avatar/${player.avatar}.png" alt="${player.name}" class="small-round large ${player.isConnected?"":"offline"}"/>
+<p>${player.playerRef}:${player.name}</p>
+</div>`
+  }
+
+  function renderRoom(room){
+    document.getElementById('roomDetails').innerHTML = `<article class="secondary-container">
+
+    <div style="width: 100%; display: flex; justify-content: space-between; align-items: center;">
+      <div class="row">
+          <h3>${room.id}</h3> <button class="chip fill">${room.status}</button>
+      </div>
+      <button class="circle" onClick="deleteRoom()">X</button>
+    </div>
+    <div>
+        <h4>Players</h4>
+        <div style="display: flex;">${room.players.map(player => playerAvatar(player)).join('')}</div>
+    </div>
+    <p>owner: ${room.ownerId}}</p>
+
+    <nav class="no-space group">
+    <div class="field label border left-round large">
+      <input type="number" id="roomId" value="${room.id}">
+      <label>Room ID</label>
+    </div>
+    <button class="large border no-round ${socket==null?"":"active"}" ${socket==null?"":"disabled"} onClick="connect()">Connect</button>
+    <button class="large border right-round secondary-border secondary-text " ${socket==null?"disabled":""} onClick="disconnect()">Disconnect</button>
+    </nav>
+</article>`
+  }
+
+  document.getElementById('createRoom').addEventListener('click', () => {
+    fetch("/api/lobbies",{
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+    })
+    .then(res => res.text())
+            .then(body => JSON.parse(body,bigIntIdReviver))
+    .then(data => {
+      console.log(data)
+      room = data;
+      renderRoom(room)
+    })
+    .catch(err => {
+      console.log(err)
+    })
+  })
+  let roomListEl = document.getElementById('roomList')
+  document.getElementById('refreshList').addEventListener('click', () => {
+    fetch("/api/lobbies")
+            .then(res => res.text())
+            .then(body => JSON.parse(body,bigIntIdReviver))
+      .then(data => {
+        rooms = data;
+        roomListEl.innerHTML = ""
+        data.forEach(room => {
+          const childEl = document.createElement('li')
+          childEl.innerHTML = `<li><article class="secondary-container">
+<div class="row">
+<h5 onClick="selectRoom(\'${room.id}\')">${room.id}</h5> <button class="chip fill">${room.status}</button>
+</div>
+</article></li>`
+          roomListEl.appendChild(childEl)
+        })
+      })
+  })
+
+  const roomEl = document.getElementById("room")
+
+  function connect(){
+    // Create WebSocket connection.
+    const url = `ws://${window.location.host}/api/lobbies/${room.id}/ws`;
+    console.log(url)
+    socket = new WebSocket(`ws://${window.location.host}/api/lobbies/${room.id}/ws`);
+
+    socket.binaryType = "arraybuffer";
+
+    // Connection opened
+    socket.addEventListener("open", (event) => {
+      renderRoom(room)
+      socket.send(`Hello Server ${room.id}`);
+      roomEl.innerHTML = ""
+
+      let alertEl = document.createElement('div')
+      alertEl.style = "float: left; top:0; left:0; width: 100%; position: absolute; padding: 10px; background: green; color: white; "
+      alertEl.innerHTML = `<p>CONNECTED</p>`
+
+      roomEl.appendChild(alertEl)
+      setTimeout(() => {
+        alertEl.remove()
+      },3000)
+    });
+
+  // Listen for messages
+    socket.addEventListener("message", (event) => {
+      console.log("Message from server ", event);
+      const bytes = new Uint8Array(event.data).reduce((a,b)=> a+ String.fromCharCode(b),'');
+      const payload = JSON.parse(atob(bytes))
+      const childEl = document.createElement('div')
+      childEl.innerHTML = `<div style="display:flex;  width: 100%; height: 100%;">
+<div>${new Date().toISOString()}</div>
+<div style="flex-grow: 1"><pre><code style="font-size: 10px; line-height: 12px;">${JSON.stringify(payload,null,2)}</code></pre></div>
+</div>`
+      roomEl.prepend(childEl)
+      if(payload.event == "player_update"){
+        console.log("changing", room.players)
+        console.log("to", payload.players)
+        room.players = payload.players
+        console.log("changing", room.owner)
+        console.log("to", payload.owner)
+        room.owner = payload.owner
+
+        renderRoom(room)
+      }else if(payload.event == "joined_room"){
+        room = payload.room
+        renderRoom(room)
+      }
+      //roomEl.appendChild(childEl)
+    });
+
+    // Listen for possible errors
+    socket.addEventListener("error", (event) => {
+      console.log("WebSocket error: ", event);
+    });
+
+    socket.addEventListener("close", (event) => {
+      console.log("The connection has been closed successfully.");
+      const alertEl = document.createElement('div')
+      alertEl.style = "float: left; top:0; left:0; width: 100%; position: absolute; padding: 10px; background: red; color: white;"
+      alertEl.innerHTML = `<p>DISCONNECTED</p>`
+
+      roomEl.appendChild(alertEl)
+      // setTimeout(() => {
+      //   alertEl.remove()
+      // },3000)
+    });
+
+    socket.addEventListener("ping", (event) => {
+      console.log("Ping received from server");
+    })
+
+    console.log(document.getElementById('roomId').value)
+  }
+  function disconnect(){
+    if(!socket){
+      return
+    }
+    socket.close(3000, "I'll be back")
+    socket = null;
+    room.players = room.players.filter(p => p.id !== player.id)
+    renderRoom(room)
+  }
+
+  function deleteRoom(){
+    fetch(`/api/lobbies/${room.id}`,{
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json"
+      },
+    })
+    .then(async (res) => {
+      const body = await res.text()
+      if(res.status !== 200){
+        throw new Error(body)
+      }
+      return body
+    })
+    .then(data => {
+      console.log(data)
+      room = null;
+      document.getElementById('roomDetails').innerHTML = ""
+    })
+            .catch(err => {
+              const snackEl = document.createElement('div')
+              snackEl.className = "snackbar error active"
+              snackEl.innerHTML = `<i>warning</i><p>${err.message}</p>`
+              document.getElementById("app").appendChild(snackEl)
+              setTimeout(() => {
+                snackEl.remove()
+              }, 3000)
+            })
+  }
+
+  function selectRoom(id){
+    console.log(id, typeof id, rooms, typeof rooms[0].id)
+    let selectedRoom = rooms.filter(room => room.id === BigInt(id))
+    console.log(selectedRoom)
+    if(selectedRoom.length === 0){
+      return
+    }
+    disconnect()
+    room = selectedRoom[0]
+    renderRoom(room)
+  }
+
+</script>
+</body>
+</html>

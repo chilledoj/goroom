@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Go WS Room Test</title>
+  <style>
+    #rooms{
+
+    }
+  </style>
+</head>
+<body>
+<h1>WS Room Test</h1>
+<div>
+  <h2>Player</h2>
+  <button id="getMe">Get Me</button>
+  <div id="me"></div>
+</div>
+<div>
+  <h2>Rooms</h2>
+  <div>
+    <button id="createRoom">Create Room</button>
+    <button id="getRooms">Get Rooms</button>
+  </div>
+  <div id="rooms"></div>
+</div>
+
+<script>
+  const getMeBtn = document.getElementById("getMe");
+  const meDiv = document.getElementById("me");
+  getMeBtn.addEventListener("click", getMe);
+  function getMe() {
+    fetch("/me")
+            .then(res => res.json())
+            .then(data => {
+              meDiv.innerHTML = "<pre><code>" + JSON.stringify(data, null, 2) + "</code></pre>" ;
+            })
+  }
+
+  const roomsUl = document.getElementById("rooms");
+  const createRoomBtn = document.getElementById("createRoom");
+  const getRoomsBtn = document.getElementById("getRooms");
+
+  let rooms = [];
+
+  function renderRooms() {
+    const roomsHtml = rooms.map(room => {
+      return "<li onClick='connect("+room.id+")'>" + room.id + "</li>"
+    })
+    roomsUl.innerHTML = roomsHtml.join("");
+  }
+
+  getRoomsBtn.addEventListener("click", getRooms);
+  function getRooms() {
+    fetch("/lobbies")
+            .then(res => res.json())
+            .then(data => {
+              rooms = data;
+              renderRooms();
+            })
+  }
+
+  createRoomBtn.addEventListener("click", createRoom);
+  function createRoom() {
+    fetch("/lobbies", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: {
+        "Content-Type": "application/json"
+      }
+    })
+            .then(res => res.json())
+            .then(data => {
+              rooms.push(data);
+              renderRooms();
+            })
+  }
+
+  let socket
+  function connect(roomId) {
+    // Create WebSocket connection.
+    socket = new WebSocket(`ws://${window.location.host}/api/rooms/${roomId}/ws`);
+
+    socket.binaryType = "arraybuffer";
+
+    socket.addEventListener("open",(event)=>{
+      console.log("Connected to server");
+    })
+    socket.addEventListener("message", (event) => {
+      console.log("Message from server ", event.data);
+      const data = new Uint8Array(event.data);
+      console.log(data);
+    });
+    // Listen for possible errors
+    socket.addEventListener("error", (event) => {
+      console.log("WebSocket error: ", event);
+    });
+    socket.addEventListener("close", (event) => {
+      console.log("WebSocket closed: ", event);
+    });
+
+  }
+
+
+</script>
+</body>
+</html>

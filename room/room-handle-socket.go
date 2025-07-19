@@ -3,6 +3,7 @@ package room
 import (
 	"github.com/gobwas/ws"
 	"net/http"
+	"time"
 )
 
 type GetPlayerIdFromRequester[PlayerId comparable] interface {
@@ -25,7 +26,10 @@ func (room *Room[RoomId, PlayerId]) HandleSocketWithPlayer(playerId PlayerId, on
 		room.players[playerId] = ss
 		room.mu.Unlock()
 
-		go room.OnConnect(playerId)
+		go func() {
+			<-time.After(time.Millisecond * 300)
+			room.OnConnect(playerId)
+		}()
 	}
 }
 

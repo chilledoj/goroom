@@ -1,11 +1,11 @@
 package main
 
 import (
-	"chilledoj/goroom/room"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/chilledoj/goroom/room"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"log/slog"
@@ -191,7 +191,7 @@ func main() {
 		if !ok {
 			return false
 		}
-		l.Close()
+		l.Stop()
 		return true
 	})
 	slog.Info("shutdown complete")

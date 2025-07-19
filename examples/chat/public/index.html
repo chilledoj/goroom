@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoRoom Chat</title>
+    <link href="https://cdn.jsdelivr.net/npm/beercss@3.11.33/dist/cdn/beer.min.css" rel="stylesheet">
+    <script type="module" src="https://cdn.jsdelivr.net/npm/beercss@3.11.33/dist/cdn/beer.min.js"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-colors@1.1.2/dist/cdn/material-dynamic-colors.min.js"></script>
+    <style>
+        body{
+            margin: 0;
+            padding: 0;
+        }
+        header {
+            background: #333;
+            color: white;
+            padding: 10px;
+        }
+        main{
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            max-height: 100%;
+
+        }
+        #chat{
+            flex: 1;
+            flex-grow: 1;
+            scroll-behavior: smooth;
+            overflow: auto;
+        }
+        #chat-form{
+            width: 100%;
+            padding: 0 1rem;
+        }
+
+        .disconnected {
+            background: #333;
+            color: white;
+        }
+        .disconnected #user-setup, .connected #user-info , .connected #chat, .connected #chat-form-container {
+            display: block;
+        }
+        .disconnected #user-info, .disconnected #chat, .disconnected #chat-form-container, .connected #user-setup {
+            display: none;
+        }
+    </style>
+</head>
+<body class="disconnected">
+<header class="primary-container">
+    <nav>
+        <h6 class="max center-align">GoRoom Chat</h6>
+    </nav>
+</header>
+<nav id="chat-form-container" class="bottom">
+    <form id="chat-form">
+        <nav class="max no-space">
+            <div class="max field border left-round">
+                <input type="text" id="message" name="message" placeholder="Message" pattern="[a-zA-Z0-9]+" required>
+            </div>
+            <button id="send" class="large right-round">Send</button>
+        </nav>
+    </form>
+</nav>
+<main class="responsive">
+    <article id="user-setup" class="fill">
+        <form id="user-form" class="max">
+            <fieldset class="max">
+                <legend>Join Chat</legend>
+                <nav class="max no-space">
+                    <div class="field label prefix border left-round">
+                        <i>account_circle</i>
+                        <input type="text" id="username" name="username" placeholder="Username">
+                        <label>Username</label>
+                    </div>
+                    <button id="join" class="large right-round" type="submit">Join</button>
+                </nav>
+            </fieldset>
+        </form>
+    </article>
+    <article id="user-info" class="fill">
+        <button id="leave">Leave</button>
+    </article>
+    <section id="chat">
+
+    </section>
+</main>
+
+<script>
+    let socket;
+    let user;
+    let chat = []
+
+    document.getElementById("user-form").addEventListener("submit", join);
+    document.getElementById("leave").addEventListener("click", leave);
+    document.getElementById("send").addEventListener("click", sendMessage);
+
+    function sendMessage(){
+        let message = document.getElementById("message").value;
+        const jsonString = JSON.stringify({
+            messageType: "message",
+            chatMessage: {
+                sender: user,
+                message: message,
+            }
+        });
+
+        // Step 2: Encode the string to UTF-8
+        const encoder = new TextEncoder();
+        const uint8Array = encoder.encode(jsonString);
+
+        // Step 3: Extract the ArrayBuffer
+        const arrayBuffer = uint8Array.buffer;
+        socket.send(arrayBuffer);
+
+        document.getElementById("message").value = "";
+    }
+
+    function join(e){
+        e.preventDefault();
+
+        user = {
+            username: document.getElementById("username").value,
+        }
+        const url = `ws://${window.location.host}/chat?username=${user.username}`
+        console.log("connecting to: ",url)
+        socket = new WebSocket(url);
+        socket.binaryType = "arraybuffer";
+
+        socket.addEventListener("error", (e) => {
+            console.log("error", e)
+        })
+        socket.addEventListener("close", () => {
+            onClose()
+        })
+        socket.addEventListener("open", () => {
+            console.log("connected");
+            document.body.classList.remove("disconnected");
+            document.body.classList.add("connected");
+            socket.send(JSON.stringify(user));
+        });
+        socket.addEventListener("message", (event) => {
+            const bytes = new Uint8Array(event.data).reduce((a,b)=> a+ String.fromCharCode(b),'');
+            const data = JSON.parse(bytes)
+            processMessage(data)
+        })
+    }
+
+    function leave(){
+        console.log("leaving")
+        socket.close();
+
+
+    }
+    function onClose(){
+        document.body.classList.remove("connected");
+        document.body.classList.add("disconnected");
+        socket = null;
+        chat = []
+        console.log("left")
+    }
+
+    function renderChat(){
+        let chatContainer = document.getElementById("chat");
+        chatContainer.innerHTML = "";
+        chat.forEach(message => {
+            let msgHtml = ""
+            if(message.sender.username === user.username){
+                msgHtml = `<article class="border primary-container" style="text-align: right">
+                    ${message.message}
+                 </article>`
+            }else if(message.sender.id === 0){
+                msgHtml = `<div class="tertiary-container" style="text-align: center">
+                    ${message.message}
+                </div>`
+            }else{
+                msgHtml = `<article class="primary">
+                    <div class="row">
+                    <button class="chip primary">${message.sender.username}</button>
+                      <p>${message.message}</p>
+                    </div>
+                    </article>
+                `
+            }
+            chatContainer.innerHTML += msgHtml
+        })
+        chatContainer.scrollTo(0, chatContainer.scrollHeight);
+    }
+
+    function processMessage(msg){
+        console.log("message", msg)
+        console.log(msg.messageType, msg.chatMessage)
+        switch (msg.messageType) {
+            case "user.joined":
+                processUserJoined(msg.chatMessage);
+                break;
+                case "user.left":
+            case "message":
+            addMessage(msg.chatMessage);
+            break;
+            default:
+                console.log("unknown message type", msg)
+                break;
+        }
+    }
+
+    function processUserJoined(msg){
+        if(msg.sender.username === user.username){
+            user.id = msg.id;
+        }else{
+            // Add message
+            addMessage(msg);
+        }
+    }
+    function addMessage(msg){
+        chat.push(msg)
+        renderChat();
+    }
+
+</script>
+
+</body>
+</html>

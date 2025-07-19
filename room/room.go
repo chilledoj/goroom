@@ -42,7 +42,7 @@ func NewRoom[RoomId comparable, PlayerId comparable](parentCtx context.Context, 
 		ID:       id,
 		Options:  options,
 		players:  make(map[PlayerId]*SocketSession[PlayerId]),
-		messages: make(chan SocketMessage[PlayerId]),
+		messages: make(chan SocketMessage[PlayerId], 255),
 		ctx:      ctx,
 		cancel:   cancel,
 		wg:       sync.WaitGroup{},
@@ -52,7 +52,7 @@ func NewRoom[RoomId comparable, PlayerId comparable](parentCtx context.Context, 
 	if options.Slogger != nil {
 		room.Slogger = options.Slogger.With("room", room.ID)
 	} else {
-		room.Slogger = slog.With("room", room.ID)
+		room.Slogger = slog.Default().With("room", room.ID)
 	}
 	return room
 }
@@ -83,6 +83,7 @@ func (room *Room[RoomId, PlayerId]) Start() {
 			sl.Debug("stopping")
 			return
 		case msg := <-room.messages:
+			sl.Debug("message", "type", msg.Type, "contents", msg.Message)
 			switch msg.Type {
 			case Disconnect:
 				sl.Debug("disconnecting", "player", msg.ReferenceID)
@@ -101,8 +102,8 @@ func (room *Room[RoomId, PlayerId]) Start() {
 	}
 }
 
-func (room *Room[RoomId, PlayerId]) Close() {
-	sl := room.Slogger.With("func", "room.Close")
+func (room *Room[RoomId, PlayerId]) Stop() {
+	sl := room.Slogger.With("func", "room.Stop")
 	sl.Debug("closing", "status", "started")
 	room.mu.RLock()
 	playersToClose := make([]PlayerId, 0, len(room.players))
@@ -132,6 +133,9 @@ func (room *Room[RoomId, PlayerId]) SendMessageToPlayer(player PlayerId, message
 	defer room.mu.RUnlock()
 
 	for key, p := range room.players {
+		if p == nil {
+			continue
+		}
 		sl.Debug("checking",
 			slog.Group("key",
 				"value", key,
@@ -160,6 +164,9 @@ func (room *Room[RoomId, PlayerId]) SendMessageToAllPlayers(message []byte) {
 	sl := room.Slogger.With("func", "room.SendMessageToAllPlayers")
 	room.mu.RLock()
 	for _, p := range room.players {
+		if p == nil {
+			continue
+		}
 		sl.Debug("sending message", "player", p.ReferenceID)
 		p.Send <- message
 	}

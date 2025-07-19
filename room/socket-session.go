@@ -3,6 +3,7 @@ package room
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"log/slog"
@@ -75,6 +76,7 @@ func (s *SocketSession[PlayerId]) Close() {
 
 func (s *SocketSession[PlayerId]) ReadLoop() {
 	sl := slog.With("func", "socket.ReadLoop")
+	sl.Debug("starting", "referenceID", s.ReferenceID)
 	defer func() {
 		s.conn.Close()
 		s.cancel()
@@ -93,17 +95,22 @@ func (s *SocketSession[PlayerId]) ReadLoop() {
 			sl.Error("ReadLoop error", "referenceID", s.ReferenceID, "err", err)
 			return
 		}
+		sl.Debug("ReadLoop message", "referenceID", s.ReferenceID, "message", fmt.Sprintf("%v", msg))
 
-		s.Messages <- SocketMessage[PlayerId]{
+		sm := SocketMessage[PlayerId]{
 			ReferenceID: s.ReferenceID,
 			Type:        Message,
 			Message:     msg,
 		}
+
+		s.Messages <- sm
+		sl.Debug("ReadLoop message sent", "referenceID", s.ReferenceID, "socket message", fmt.Sprintf("%v", sm))
 	}
 }
 
 func (s *SocketSession[PlayerId]) WriteLoop() {
 	sl := slog.With("func", "socket.WriteLoop")
+	sl.Debug("starting", "referenceID", s.ReferenceID)
 	ticker := time.NewTicker(time.Second * 10)
 	defer func() {
 		ticker.Stop()

@@ -150,14 +150,13 @@
     function leave(){
         console.log("leaving")
         socket.close();
-
-
     }
     function onClose(){
         document.body.classList.remove("connected");
         document.body.classList.add("disconnected");
         socket = null;
-        chat = []
+        chat = [];
+        renderChat();
         console.log("left")
     }
 

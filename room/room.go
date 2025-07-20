@@ -12,9 +12,10 @@ type Room[RoomId comparable, PlayerId comparable] struct {
 	ID RoomId
 	Options[PlayerId]
 
-	mu       sync.RWMutex
-	players  map[PlayerId]*SocketSession[PlayerId]
-	lastSeen map[PlayerId]time.Time
+	mu            sync.RWMutex
+	players       map[PlayerId]*SocketSession[PlayerId]
+	lastSeen      map[PlayerId]time.Time
+	cleanupPeriod time.Duration
 
 	// MessageProcessing
 	messages chan SocketMessage[PlayerId]
@@ -33,6 +34,8 @@ type Options[PlayerId comparable] struct {
 	OnDisconnect func(player PlayerId)
 	OnMessage    func(player PlayerId, message []byte)
 
+	CleanupPeriod time.Duration
+
 	Slogger *slog.Logger
 }
 
@@ -47,6 +50,11 @@ func NewRoom[RoomId comparable, PlayerId comparable](parentCtx context.Context, 
 		cancel:   cancel,
 		wg:       sync.WaitGroup{},
 		lastSeen: make(map[PlayerId]time.Time),
+	}
+	if options.CleanupPeriod == 0 {
+		room.cleanupPeriod = time.Second * 30
+	} else {
+		room.cleanupPeriod = options.CleanupPeriod
 	}
 
 	if options.Slogger != nil {
@@ -73,12 +81,16 @@ func (room *Room[RoomId, PlayerId]) GetPlayerPresence() []PlayerPresence[PlayerI
 func (room *Room[RoomId, PlayerId]) Start() {
 	sl := room.Slogger.With("func", "room.Start")
 	sl.Debug("starting")
-	ticker := time.NewTicker(time.Second * 5)
-	defer ticker.Stop()
+	ticker := time.NewTicker(room.cleanupPeriod)
+	defer func() {
+		ticker.Stop()
+		sl.Info("stopped")
+	}()
 	for {
 		select {
 		case <-ticker.C:
-			sl.Debug("tick")
+			sl.Debug("Cleaning up players")
+			room.CleanUpPlayers()
 		case <-room.ctx.Done():
 			sl.Debug("stopping")
 			return
@@ -92,11 +104,11 @@ func (room *Room[RoomId, PlayerId]) Start() {
 				room.lastSeen[msg.ReferenceID] = time.Now()
 				room.mu.Unlock()
 				sl.Debug("disconnected", "player", msg.ReferenceID)
-				room.Options.OnDisconnect(msg.ReferenceID)
-				return
+				go room.Options.OnDisconnect(msg.ReferenceID)
+
 			case Message:
 				sl.Debug("message", "player", msg.ReferenceID)
-				room.Options.OnMessage(msg.ReferenceID, msg.Message)
+				go room.Options.OnMessage(msg.ReferenceID, msg.Message)
 			}
 		}
 	}
@@ -171,4 +183,24 @@ func (room *Room[RoomId, PlayerId]) SendMessageToAllPlayers(message []byte) {
 		p.Send <- message
 	}
 	room.mu.RUnlock()
+}
+
+func (room *Room[RoomId, PlayerId]) CleanUpPlayers() {
+	sl := room.Slogger.With("func", "room.CleanUpPlayers")
+	sl.Debug("starting")
+	room.mu.Lock()
+	defer room.mu.Unlock()
+	for playerId, p := range room.players {
+		if p == nil && time.Since(room.lastSeen[playerId]) > room.cleanupPeriod {
+			sl.Info("removing", "player", playerId,
+				slog.Group("checks",
+					"lastSeen", room.lastSeen[playerId],
+					"timeSince", time.Since(room.lastSeen[playerId]),
+					"cleanupPeriod", room.cleanupPeriod,
+					"cleanupPeriodExceeded", time.Since(room.lastSeen[playerId]) > room.cleanupPeriod,
+				))
+			delete(room.players, playerId)
+		}
+	}
+	sl.Debug("finished")
 }

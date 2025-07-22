@@ -2,18 +2,23 @@ package room
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 )
+
+type SocketSessioner[PlayerId comparable] interface {
+	ReferenceId() PlayerId
+	Send(message []byte)
+	Close()
+}
 
 type Room[RoomId comparable, PlayerId comparable] struct {
 	ID RoomId
 	Options[PlayerId]
 
 	mu            sync.RWMutex
-	players       map[PlayerId]*SocketSession[PlayerId]
+	players       map[PlayerId]SocketSessioner[PlayerId] //*SocketSession[PlayerId]
 	lastSeen      map[PlayerId]time.Time
 	cleanupPeriod time.Duration
 
@@ -39,12 +44,14 @@ type Options[PlayerId comparable] struct {
 	Slogger *slog.Logger
 }
 
+const defaultCleanupPeriod time.Duration = time.Second * 30
+
 func NewRoom[RoomId comparable, PlayerId comparable](parentCtx context.Context, id RoomId, options Options[PlayerId]) *Room[RoomId, PlayerId] {
 	ctx, cancel := context.WithCancel(parentCtx)
 	room := &Room[RoomId, PlayerId]{
 		ID:       id,
 		Options:  options,
-		players:  make(map[PlayerId]*SocketSession[PlayerId]),
+		players:  make(map[PlayerId]SocketSessioner[PlayerId]), //*SocketSession[PlayerId]),
 		messages: make(chan SocketMessage[PlayerId], 255),
 		ctx:      ctx,
 		cancel:   cancel,
@@ -52,7 +59,7 @@ func NewRoom[RoomId comparable, PlayerId comparable](parentCtx context.Context, 
 		lastSeen: make(map[PlayerId]time.Time),
 	}
 	if options.CleanupPeriod == 0 {
-		room.cleanupPeriod = time.Second * 30
+		room.cleanupPeriod = defaultCleanupPeriod
 	} else {
 		room.cleanupPeriod = options.CleanupPeriod
 	}
@@ -135,6 +142,7 @@ func (room *Room[RoomId, PlayerId]) Stop() {
 		sl.Debug("closed player", "player", playerId)
 	}
 	close(room.messages)
+	room.cancel()
 	sl.Debug("room closed", "status", "completed")
 }
 
@@ -144,32 +152,12 @@ func (room *Room[RoomId, PlayerId]) SendMessageToPlayer(player PlayerId, message
 	room.mu.RLock()
 	defer room.mu.RUnlock()
 
-	for key, p := range room.players {
-		if p == nil {
-			continue
-		}
-		sl.Debug("checking",
-			slog.Group("key",
-				"value", key,
-				"type", fmt.Sprintf("%T", key),
-			),
-			slog.Group("p.id",
-				"value", p.ReferenceID,
-				"type", fmt.Sprintf("%T", p.ReferenceID),
-			),
-		)
-		if p.ReferenceID == player {
-			p.Send <- message
-			return
-		}
-	}
-
 	ps, ok := room.players[player]
 	if !ok {
 		sl.Debug("player not found", "player", player)
 		return
 	}
-	ps.Send <- message
+	ps.Send(message)
 }
 
 func (room *Room[RoomId, PlayerId]) SendMessageToAllPlayers(message []byte) {
@@ -179,8 +167,8 @@ func (room *Room[RoomId, PlayerId]) SendMessageToAllPlayers(message []byte) {
 		if p == nil {
 			continue
 		}
-		sl.Debug("sending message", "player", p.ReferenceID)
-		p.Send <- message
+		sl.Debug("sending message", "player", p.ReferenceId())
+		p.Send(message)
 	}
 	room.mu.RUnlock()
 }

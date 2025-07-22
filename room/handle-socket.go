@@ -1,6 +1,7 @@
 package room
 
 import (
+	"errors"
 	"github.com/gobwas/ws"
 	"net/http"
 	"time"
@@ -13,6 +14,12 @@ type ErrorHandler func(w http.ResponseWriter, r *http.Request, err error)
 
 func (room *Room[RoomId, PlayerId]) HandleSocketWithPlayer(playerId PlayerId, onError ErrorHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		var zero PlayerId
+		if playerId == zero {
+			onError(w, r, errors.New("playerId is nil"))
+			return
+		}
+
 		conn, _, _, err := ws.UpgradeHTTP(r, w)
 		if err != nil {
 			onError(w, r, err)
@@ -27,7 +34,7 @@ func (room *Room[RoomId, PlayerId]) HandleSocketWithPlayer(playerId PlayerId, on
 		room.mu.Unlock()
 
 		go func() {
-			<-time.After(time.Millisecond * 300)
+			<-time.After(time.Millisecond * 1)
 			room.OnConnect(playerId)
 		}()
 	}
@@ -36,10 +43,6 @@ func (room *Room[RoomId, PlayerId]) HandleSocketWithPlayer(playerId PlayerId, on
 func (room *Room[RoomId, PlayerId]) HandleSocket(playerStore GetPlayerIdFromRequester[PlayerId], onError ErrorHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		playerId := playerStore.GetPlayerIdFromRequest(w, r)
-		//if playerId == nil {
-		//	onError(w, r, fmt.Errorf("player not found"))
-		//	return
-		//}
 		room.HandleSocketWithPlayer(playerId, onError)(w, r)
 	}
 }

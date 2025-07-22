@@ -23,10 +23,10 @@ func NewChatRoom(ctx context.Context) *ChatRoom {
 	cr := &ChatRoom{
 		users:   NewUserStore(),
 		msgs:    make([]ChatMessage, 0),
-		Slogger: slog.With("room", "chat"),
+		Slogger: slog.Default(),
 	}
 
-	cr.Room = room.NewRoom[string, UserId](ctx, "chat", room.Options[UserId]{
+	cr.Room = room.NewRoom[string, UserId](ctx, "room", room.Options[UserId]{
 		OnConnect:    cr.OnConnect,
 		OnDisconnect: cr.OnDisconnect,
 		OnMessage:    cr.OnMessage,

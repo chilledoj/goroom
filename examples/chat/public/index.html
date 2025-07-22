@@ -4,220 +4,171 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GoRoom Chat</title>
-    <link href="https://cdn.jsdelivr.net/npm/beercss@3.11.33/dist/cdn/beer.min.css" rel="stylesheet">
-    <script type="module" src="https://cdn.jsdelivr.net/npm/beercss@3.11.33/dist/cdn/beer.min.js"></script>
-    <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-colors@1.1.2/dist/cdn/material-dynamic-colors.min.js"></script>
-    <style>
-        body{
-            margin: 0;
-            padding: 0;
-        }
-        header {
-            background: #333;
-            color: white;
-            padding: 10px;
-        }
-        main{
-            display: flex;
-            flex-direction: column;
-            height: 100%;
-            max-height: 100%;
 
-        }
-        #chat{
-            flex: 1;
-            flex-grow: 1;
-            scroll-behavior: smooth;
-            overflow: auto;
-        }
-        #chat-form{
-            width: 100%;
-            padding: 0 1rem;
-        }
+    <!-- Link to Google Fonts for Material Symbols -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
 
-        .disconnected {
-            background: #333;
-            color: white;
-        }
-        .disconnected #user-setup, .connected #user-info , .connected #chat, .connected #chat-form-container {
-            display: block;
-        }
-        .disconnected #user-info, .disconnected #chat, .disconnected #chat-form-container, .connected #user-setup {
-            display: none;
-        }
-    </style>
+    <!-- Assuming you are using Tailwind via a CDN as well -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <link href="/styles.css" rel="stylesheet" />
 </head>
-<body class="disconnected">
-<header class="primary-container">
-    <nav>
-        <h6 class="max center-align">GoRoom Chat</h6>
-    </nav>
-</header>
-<nav id="chat-form-container" class="bottom">
-    <form id="chat-form">
-        <nav class="max no-space">
-            <div class="max field border left-round">
-                <input type="text" id="message" name="message" placeholder="Message" pattern="[a-zA-Z0-9]+" required>
+<body class="disconnected bg-gray-100 h-screen flex flex-col">
+    <header id="app-header" class="bg-blue-600 text-white p-4 shadow-lg">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-8 h-8 bg-blue-800 rounded-full flex items-center justify-center">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"></path>
+                        <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z"></path>
+                    </svg>
+                </div>
+                <h1 class="text-xl font-semibold">GoRoom Chat</h1>
             </div>
-            <button id="send" class="large right-round">Send</button>
-        </nav>
-    </form>
-</nav>
-<main class="responsive">
-    <article id="user-setup" class="fill">
-        <form id="user-form" class="max">
-            <fieldset class="max">
-                <legend>Join Chat</legend>
-                <nav class="max no-space">
-                    <div class="field label prefix border left-round">
-                        <i>account_circle</i>
-                        <input type="text" id="username" name="username" placeholder="Username">
-                        <label>Username</label>
-                    </div>
-                    <button id="join" class="large right-round" type="submit">Join</button>
-                </nav>
-            </fieldset>
-        </form>
-    </article>
-    <article id="user-info" class="fill">
-        <button id="leave">Leave</button>
-    </article>
-    <section id="chat">
+            <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-2">
+                    <span id="statusText" class="text-sm text-blue-100">Disconnected</span>
+                    <div id="statusDot" class="w-3 h-3 bg-red-400 rounded-full"></div>
+                </div>
+                <button
+                        id="leaveButton"
+                        class="hidden bg-blue-700 hover:bg-blue-800 text-white text-sm px-3 py-1 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300"
+                >
+                    Leave
+                </button>
+            </div>
+        </div>
+    </header>
 
-    </section>
-</main>
+    <!-- Connection Form (shown when disconnected) -->
+    <div id="connectionForm" class="flex-1 flex items-center justify-center bg-gray-50 h-full">
+        <div class="bg-white p-8 rounded-lg shadow-lg max-w-md w-full mx-4">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"></path>
+                        <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z"></path>
+                    </svg>
+                </div>
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">Join the Chat</h2>
+                <p class="text-gray-600">Enter your username to start chatting</p>
+            </div>
 
-<script>
-    let socket;
-    let user;
-    let chat = []
+            <form id="usernameForm" class="space-y-4">
+                <div>
+                    <label for="usernameInput" class="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                    <input
+                        type="text"
+                        id="usernameInput"
+                        name="username"
+                        placeholder="Enter your username"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                        minlength="2"
+                        maxlength="20"
+                    >
+                </div>
 
-    document.getElementById("user-form").addEventListener("submit", join);
-    document.getElementById("leave").addEventListener("click", leave);
-    document.getElementById("send").addEventListener("click", sendMessage);
+                <button
+                    type="submit"
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                >
+                    Connect to Chat
+                </button>
+            </form>
 
-    function sendMessage(){
-        let message = document.getElementById("message").value;
-        const jsonString = JSON.stringify({
-            messageType: "message",
-            chatMessage: {
-                sender: user,
-                message: message,
-            }
-        });
+            <div class="mt-4 text-center">
+                <p class="text-xs text-gray-500">By joining, you agree to be respectful to other users</p>
+            </div>
+        </div>
+    </div>
 
-        // Step 2: Encode the string to UTF-8
-        const encoder = new TextEncoder();
-        const uint8Array = encoder.encode(jsonString);
+    <!-- Main Chat Body (hidden initially) -->
+    <main id="chatMain" class="flex-1 overflow-hidden flex-col bg-white hidden">
+        <div id="chatContainer" class="flex-1 overflow-y-auto p-4 space-y-4">
+            <!-- Messages will be added here dynamically -->
+        </div>
+    </main>
 
-        // Step 3: Extract the ArrayBuffer
-        const arrayBuffer = uint8Array.buffer;
-        socket.send(arrayBuffer);
+    <div id="inputBar" class="bg-white border-t border-gray-200 p-4 hidden">
+        <div class="flex items-center space-x-3">
+            <!-- Attachment Button -->
+            <button class="flex-shrink-0 p-2 text-gray-400 hover:text-gray-600 transition-colors" disabled>
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
+                </svg>
+            </button>
 
-        document.getElementById("message").value = "";
-    }
+            <!-- Message Input -->
+            <div class="flex-1 relative">
+                <input
+                        type="text"
+                        id="messageInput"
+                        placeholder="Type your message..."
+                        class="w-full px-4 py-3 pr-12 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                <!-- Emoji Button -->
+                <button class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 100-2 1 1 0 000 2zm7-1a1 1 0 11-2 0 1 1 0 012 0zm-.464 5.535a1 1 0 10-1.415-1.414 3 3 0 01-4.242 0 1 1 0 00-1.415 1.414 5 5 0 007.072 0z" clip-rule="evenodd"></path>
+                    </svg>
+                </button>
+            </div>
 
-    function join(e){
-        e.preventDefault();
+            <!-- Send Button -->
+            <button
+                    id="sendButton"
+                    class="flex-shrink-0 bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                </svg>
+            </button>
+        </div>
+    </div>
+<!--    -->
+<!--    <main class="container max-w-screen-lg mx-auto">-->
+<!--        <article id="user-setup" class="max-w-md mx-auto mt-10 bg-white p-6 rounded-xl shadow-lg">-->
+<!--            <form id="user-form">-->
+<!--                <fieldset class="border-none p-0">-->
+<!--                    <legend class="w-full text-center text-2xl font-bold text-gray-800 mb-4">Join Chat</legend>-->
+<!--                    <div class="flex items-center">-->
+<!--                        <label for="username" class="sr-only">Username</label>-->
+<!--                        <div class="relative w-full">-->
+<!--                            <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">-->
+<!--                                &lt;!&ndash; Material Symbols icon &ndash;&gt;-->
+<!--                                <i class="material-symbols-outlined text-gray-400">account_circle</i>-->
+<!--                            </div>-->
+<!--                            <input type="text" id="username" name="username" placeholder="Enter your username"-->
+<!--                                   class="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900">-->
+<!--                        </div>-->
+<!--                        <button id="join" type="submit"-->
+<!--                                class="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-r-md border border-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1">-->
+<!--                            Join-->
+<!--                        </button>-->
+<!--                    </div>-->
+<!--                </fieldset>-->
+<!--            </form>-->
+<!--        </article>-->
+<!--        <article id="user-info" class="fill">-->
+<!--            <button id="leave">Leave</button>-->
+<!--        </article>-->
+<!--        <section id="chat">-->
 
-        user = {
-            username: document.getElementById("username").value,
-        }
-        const url = `ws://${window.location.host}/chat?username=${user.username}`
-        console.log("connecting to: ",url)
-        socket = new WebSocket(url);
-        socket.binaryType = "arraybuffer";
+<!--        </section>-->
+<!--    </main>-->
+<!--    <nav class="bottom">-->
+<!--        <form id="chat-form">-->
+<!--            <nav class="max no-space">-->
+<!--                <div class="max field border left-round">-->
+<!--                    <input type="text" id="message" name="message" placeholder="Message" pattern="[a-zA-Z0-9]+" required>-->
+<!--                </div>-->
+<!--                <button id="send" class="large right-round">Send</button>-->
+<!--            </nav>-->
+<!--        </form>-->
+<!--    </nav>-->
 
-        socket.addEventListener("error", (e) => {
-            console.log("error", e)
-        })
-        socket.addEventListener("close", () => {
-            onClose()
-        })
-        socket.addEventListener("open", () => {
-            console.log("connected");
-            document.body.classList.remove("disconnected");
-            document.body.classList.add("connected");
-            socket.send(JSON.stringify(user));
-        });
-        socket.addEventListener("message", (event) => {
-            const bytes = new Uint8Array(event.data).reduce((a,b)=> a+ String.fromCharCode(b),'');
-            const data = JSON.parse(bytes)
-            processMessage(data)
-        })
-    }
-
-    function leave(){
-        console.log("leaving")
-        socket.close();
-    }
-    function onClose(){
-        document.body.classList.remove("connected");
-        document.body.classList.add("disconnected");
-        socket = null;
-        chat = [];
-        renderChat();
-        console.log("left")
-    }
-
-    function renderChat(){
-        let chatContainer = document.getElementById("chat");
-        chatContainer.innerHTML = "";
-        chat.forEach(message => {
-            let msgHtml = ""
-            if(message.sender.username === user.username){
-                msgHtml = `<article class="border primary-container" style="text-align: right">
-                    ${message.message}
-                 </article>`
-            }else if(message.sender.id === 0){
-                msgHtml = `<div class="tertiary-container" style="text-align: center">
-                    ${message.message}
-                </div>`
-            }else{
-                msgHtml = `<article class="primary">
-                    <div class="row">
-                    <button class="chip primary">${message.sender.username}</button>
-                      <p>${message.message}</p>
-                    </div>
-                    </article>
-                `
-            }
-            chatContainer.innerHTML += msgHtml
-        })
-        chatContainer.scrollTo(0, chatContainer.scrollHeight);
-    }
-
-    function processMessage(msg){
-        console.log("message", msg)
-        console.log(msg.messageType, msg.chatMessage)
-        switch (msg.messageType) {
-            case "user.joined":
-                processUserJoined(msg.chatMessage);
-                break;
-                case "user.left":
-            case "message":
-            addMessage(msg.chatMessage);
-            break;
-            default:
-                console.log("unknown message type", msg)
-                break;
-        }
-    }
-
-    function processUserJoined(msg){
-        if(msg.sender.username === user.username){
-            user.id = msg.id;
-        }else{
-            // Add message
-            addMessage(msg);
-        }
-    }
-    function addMessage(msg){
-        chat.push(msg)
-        renderChat();
-    }
-
-</script>
+<script src="/chat.js"></script>
 
 </body>
 </html>

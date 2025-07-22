@@ -6,6 +6,7 @@ import (
 	"github.com/chilledoj/goroom/room"
 	"log/slog"
 	"sync"
+	"time"
 )
 
 type ChatRoom struct {
@@ -63,6 +64,7 @@ func (cr *ChatRoom) OnConnect(playerId UserId) {
 				Name: user.Name,
 			},
 			Message: "user " + user.Name + " joined the chat",
+			Tsp:     time.Now(),
 		},
 	}
 	userInfoMsg, _ := json.Marshal(usrInfoMsgObject)
@@ -77,6 +79,7 @@ func (cr *ChatRoom) OnConnect(playerId UserId) {
 				Name: "system",
 			},
 			Message: "user " + user.Name + " joined the chat",
+			Tsp:     time.Now(),
 		},
 	}
 	msg, _ := json.Marshal(msgObject)
@@ -98,6 +101,7 @@ func (cr *ChatRoom) OnDisconnect(playerId UserId) {
 				Name: "system",
 			},
 			Message: "user " + user.Name + " left the chat",
+			Tsp:     time.Now(),
 		},
 	}
 	msg, _ := json.Marshal(msgObject)
@@ -106,15 +110,23 @@ func (cr *ChatRoom) OnDisconnect(playerId UserId) {
 }
 
 func (cr *ChatRoom) OnMessage(playerId UserId, message []byte) {
-	cr.Slogger.Info("player sent message", "playerId", playerId, "message", string(message))
+	sl := cr.Slogger.With("func", "ChatRoom.OnMessage")
+	sl.Info("player sent message", "playerId", playerId, "message", string(message))
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
 	var cm Message
 	if err := json.Unmarshal(message, &cm); err != nil {
-		cr.Slogger.Error("error unmarshalling message", "err", err)
+		sl.Error("error unmarshalling message", "err", err)
+		return
 	}
 
+	cm.ChatMessage.Tsp = time.Now()
 	cr.msgs = append(cr.msgs, cm.ChatMessage)
-	cr.SendMessageToAllPlayers(message)
+
+	msg, err := json.Marshal(cm)
+	if err != nil {
+		sl.Error("error creating new json message", "err", err)
+	}
+	cr.SendMessageToAllPlayers(msg)
 }

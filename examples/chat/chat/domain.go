@@ -1,5 +1,7 @@
 package chat
 
+import "time"
+
 type UserId = int
 
 type User struct {
@@ -16,8 +18,9 @@ const (
 )
 
 type ChatMessage struct {
-	Sender  User   `json:"sender"`
-	Message string `json:"message"`
+	Sender  User      `json:"sender"`
+	Message string    `json:"message"`
+	Tsp     time.Time `json:"tsp"`
 }
 
 type Message struct {

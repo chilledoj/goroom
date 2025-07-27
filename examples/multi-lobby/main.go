@@ -2,29 +2,42 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/chilledoj/goroom/room"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"log/slog"
+	"math"
 	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"sync"
+	"time"
 )
 
+var playerStore sync.Map
 var lobbyStore sync.Map
 
-type PlayerIdentifier = int64
-type RoomIdentifier = int64
+type PlayerIdentifier = int8
+type RoomIdentifier = string
+
+const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func RandStringBytesRmndr(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letters[rand.Int63()%int64(len(letters))]
+	}
+	return string(b)
+}
 
 type Player struct {
 	ID          PlayerIdentifier `json:"id"`
-	Name        string           `json:"name"`
+	Username    string           `json:"username"`
 	Avatar      string           `json:"avatar"`
 	CurrentRoom RoomIdentifier   `json:"currentRoom"`
 	IsConnected bool             `json:"isConnected"`
@@ -32,40 +45,56 @@ type Player struct {
 
 type Lobby struct {
 	*room.Room[RoomIdentifier, PlayerIdentifier]
-	owner  PlayerIdentifier
-	status string
+	owner            PlayerIdentifier
+	allocatedPlayers []PlayerIdentifier
 }
 
 func (l *Lobby) OnConnect(playerId PlayerIdentifier) {
 	slog.Info("player connected", "playerId", playerId)
-	object := map[string]interface{}{
-		"lobby":            l.ID,
-		"event":            "player_update",
-		"player":           playerId,
-		"allocatedPlayers": l.GetPlayerPresence(),
-		"ownerId":          l.owner,
+	found := false
+	for _, p := range l.allocatedPlayers {
+		if p == playerId {
+			found = true
+			break
+		}
 	}
-	data, _ := json.Marshal(object)
-	payload := make([]byte, base64.StdEncoding.EncodedLen(len(data)))
-	base64.StdEncoding.Encode(payload, data)
-	l.Room.SendMessageToPlayer(playerId, payload)
+	if !found {
+		l.allocatedPlayers = append(l.allocatedPlayers, playerId)
+	}
+	data, _ := json.Marshal(l.toResponse())
+	//payload := make([]byte, base64.StdEncoding.EncodedLen(len(data)))
+	//base64.StdEncoding.Encode(payload, data)
+	l.Room.SendMessageToPlayer(playerId, data)
+	l.Room.SendMessageToAllPlayers(data)
+}
+
+func (l *Lobby) OnDisconnect(playerId PlayerIdentifier) {
+	slog.Info("player disconnected", "playerId", playerId)
+	for idx, p := range l.allocatedPlayers {
+		if p == playerId {
+			l.allocatedPlayers = append(l.allocatedPlayers[:idx], l.allocatedPlayers[idx+1:]...)
+			break
+		}
+	}
+	data, _ := json.Marshal(l.toResponse())
+	l.Room.SendMessageToAllPlayers(data)
 }
 
 func NewLobby(parentCtx context.Context, owner Player) *Lobby {
-	roomId := rand.Int63()
+
+	roomId := RandStringBytesRmndr(6)
 	lobby := &Lobby{
-		owner:  owner.ID,
-		status: "open",
+		owner:            owner.ID,
+		allocatedPlayers: []PlayerIdentifier{owner.ID},
 	}
 
 	lobby.Room = room.NewRoom[RoomIdentifier, PlayerIdentifier](parentCtx, roomId, room.Options[PlayerIdentifier]{
-		OnConnect: lobby.OnConnect,
-		OnDisconnect: func(player PlayerIdentifier) {
-			fmt.Printf("player disconnected: %d\n", player)
-		},
+		OnConnect:    lobby.OnConnect,
+		OnDisconnect: lobby.OnDisconnect,
 		OnMessage: func(player PlayerIdentifier, message []byte) {
 			fmt.Printf("player %d sent message: %s\n", player, message)
 		},
+		CleanupPeriod: time.Second * 10,
 	})
 
 	go lobby.Room.Start()
@@ -89,8 +118,26 @@ func main() {
 
 	r.Mount("/debug", middleware.Profiler())
 
-	r.HandleFunc("/api/players/me", func(w http.ResponseWriter, r *http.Request) {
-		player := getPlayerFromHTTP(r)
+	r.HandleFunc("/api/players", func(w http.ResponseWriter, r *http.Request) {})
+
+	r.HandleFunc("POST /api/players", func(w http.ResponseWriter, r *http.Request) {
+		postData := struct {
+			Username string `json:"username"`
+		}{}
+		if err := json.NewDecoder(r.Body).Decode(&postData); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+
+		slog.Debug("PlayerInfo", "postData", postData)
+
+		pid := rand.Int31n(math.MaxInt8)
+		player := Player{
+			ID:       PlayerIdentifier(pid),
+			Username: postData.Username,
+		}
+		playerStore.Store(player.ID, player)
+
 		jsonResponse(w, player)
 	})
 
@@ -130,9 +177,20 @@ func main() {
 	defer stop()
 
 	r.HandleFunc("POST /api/lobbies", func(w http.ResponseWriter, r *http.Request) {
-		player := getPlayerFromHTTP(r)
+		player, err := getPlayerFromHTTP(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
-		lobby := NewLobby(mainCtx, player)
+		if player.CurrentRoom != "" {
+			http.Error(w, "already in a lobby", http.StatusBadRequest)
+			return
+		}
+		if player.ID == 0 {
+		}
+
+		lobby := NewLobby(mainCtx, *player)
 
 		slog.Info("new lobby created", "lobbyId", lobby.ID)
 		lobbyStore.Store(lobby.ID, lobby)
@@ -140,23 +198,16 @@ func main() {
 	})
 
 	r.HandleFunc("GET /api/lobbies/{lobbyId}/ws", func(w http.ResponseWriter, r *http.Request) {
-		player := getPlayerFromHTTP(r)
-
-		lobbyIdStr := chi.URLParam(r, "lobbyId")
-		slog.Info("lobby websocket", "lobbyId", lobbyIdStr)
-
-		lobbyId, err := strconv.ParseInt(lobbyIdStr, 10, 64)
+		player, err := getPlayerFromHTTP(r)
 		if err != nil {
-			http.Error(w, "invalid lobby id", http.StatusBadRequest)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		lobbyStore.Range(func(key, value any) bool {
-			slog.Info("lobbyStore", "key", key, "value", value, "requested", key == lobbyId)
-			return true
-		})
+		lobbyIdStr := chi.URLParam(r, "lobbyId")
+		slog.Info("lobby websocket", "lobbyId", lobbyIdStr, "playerId", player.ID, "playerUsername", player.Username, "playerAvatar", player.Avatar, "playerCurrentRoom", player.CurrentRoom, "playerIsConnected", player.IsConnected)
 
-		l, ok := lobbyStore.Load(lobbyId)
+		l, ok := lobbyStore.Load(lobbyIdStr)
 		if !ok {
 			http.Error(w, "lobby not found", http.StatusNotFound)
 			return
@@ -176,7 +227,7 @@ func main() {
 	r.Handle("/*", http.FileServer(http.Dir("./public/")))
 
 	go func() {
-		if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("listen", "err", err)
 		}
 	}()
@@ -207,14 +258,38 @@ func jsonResponse(w http.ResponseWriter, data interface{}) {
 	w.Write(buf)
 }
 
-var onlyPlayer = Player{
-	ID:     123456789,
-	Name:   "test",
-	Avatar: "gopher",
-}
+// can't be bothered with sessions so will just get the player from the header
+func getPlayerFromHTTP(r *http.Request) (*Player, error) {
+	qry := r.URL.Query()
+	playerIdString := qry["playerId"][0]
 
-func getPlayerFromHTTP(r *http.Request) Player {
-	return onlyPlayer
+	playerId, err := strconv.ParseInt(playerIdString, 10, 8)
+	if err != nil {
+		return nil, errors.New("invalid player id")
+	}
+	pid := PlayerIdentifier(playerId)
+	playerStore.Range(func(key, value interface{}) bool {
+		pid, ok := key.(PlayerIdentifier)
+		if !ok {
+			return false
+		}
+
+		player := value.(Player)
+		slog.Info("getPlayerFromHTTP", "key", key, "pid", pid, "checkEqual", player.ID == pid)
+		if player.ID != pid {
+			return false
+		}
+		return true
+	})
+	p, ok := playerStore.Load(pid)
+	if !ok {
+		return nil, errors.New("player not found")
+	}
+	player, ok := p.(Player)
+	if !ok {
+		return nil, errors.New("player is not player")
+	}
+	return &player, nil
 }
 
 type lobbyResponse struct {
@@ -228,17 +303,20 @@ func (l *Lobby) toResponse() lobbyResponse {
 	roomPlayers := l.GetPlayerPresence()
 	players := make([]Player, len(roomPlayers))
 	for idx, p := range roomPlayers {
-		// normally get user from store
-		player := onlyPlayer
+		pl, ok := playerStore.Load(p.ID)
+		if !ok {
+			continue
+		}
+		player := pl.(Player)
 		player.IsConnected = p.IsConnected
 		player.CurrentRoom = l.ID
 
-		players[idx] = Player{}
+		players[idx] = player
 	}
 	return lobbyResponse{
 		ID:      l.ID,
-		Status:  l.status,
+		Status:  l.Room.Status.String(),
 		OwnerID: l.owner,
-		Players: []Player{},
+		Players: players,
 	}
 }

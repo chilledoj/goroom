@@ -35,7 +35,7 @@ func (room *Room[RoomId, PlayerId]) HandleSocketWithPlayer(playerId PlayerId, on
 
 		go func() {
 			<-time.After(time.Millisecond * 1)
-			room.OnConnect(playerId)
+			room.opts.OnConnect(playerId)
 		}()
 	}
 }

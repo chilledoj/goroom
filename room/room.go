@@ -14,10 +14,11 @@ type SocketSessioner[PlayerId comparable] interface {
 }
 
 type Room[RoomId comparable, PlayerId comparable] struct {
-	ID RoomId
-	Options[PlayerId]
+	ID   RoomId
+	opts Options[PlayerId]
 
 	mu            sync.RWMutex
+	Status        RoomStatus
 	players       map[PlayerId]SocketSessioner[PlayerId] //*SocketSession[PlayerId]
 	lastSeen      map[PlayerId]time.Time
 	cleanupPeriod time.Duration
@@ -50,7 +51,8 @@ func NewRoom[RoomId comparable, PlayerId comparable](parentCtx context.Context, 
 	ctx, cancel := context.WithCancel(parentCtx)
 	room := &Room[RoomId, PlayerId]{
 		ID:       id,
-		Options:  options,
+		opts:     options,
+		Status:   Open,
 		players:  make(map[PlayerId]SocketSessioner[PlayerId]), //*SocketSession[PlayerId]),
 		messages: make(chan SocketMessage[PlayerId], 255),
 		ctx:      ctx,
@@ -69,6 +71,7 @@ func NewRoom[RoomId comparable, PlayerId comparable](parentCtx context.Context, 
 	} else {
 		room.Slogger = slog.Default().With("room", room.ID)
 	}
+
 	return room
 }
 
@@ -111,11 +114,11 @@ func (room *Room[RoomId, PlayerId]) Start() {
 				room.lastSeen[msg.ReferenceID] = time.Now()
 				room.mu.Unlock()
 				sl.Debug("disconnected", "player", msg.ReferenceID)
-				go room.Options.OnDisconnect(msg.ReferenceID)
+				go room.opts.OnDisconnect(msg.ReferenceID)
 
 			case Message:
 				sl.Debug("message", "player", msg.ReferenceID)
-				go room.Options.OnMessage(msg.ReferenceID, msg.Message)
+				go room.opts.OnMessage(msg.ReferenceID, msg.Message)
 			}
 		}
 	}
@@ -174,10 +177,14 @@ func (room *Room[RoomId, PlayerId]) SendMessageToAllPlayers(message []byte) {
 }
 
 func (room *Room[RoomId, PlayerId]) CleanUpPlayers() {
+	if room.Status != Open {
+		return
+	}
 	sl := room.Slogger.With("func", "room.CleanUpPlayers")
 	sl.Debug("starting")
 	room.mu.Lock()
 	defer room.mu.Unlock()
+
 	for playerId, p := range room.players {
 		if p == nil && time.Since(room.lastSeen[playerId]) > room.cleanupPeriod {
 			sl.Info("removing", "player", playerId,
@@ -188,7 +195,11 @@ func (room *Room[RoomId, PlayerId]) CleanUpPlayers() {
 					"cleanupPeriodExceeded", time.Since(room.lastSeen[playerId]) > room.cleanupPeriod,
 				))
 			delete(room.players, playerId)
+			go func(pid PlayerId) {
+				room.opts.OnDisconnect(pid)
+			}(playerId)
 		}
 	}
+
 	sl.Debug("finished")
 }

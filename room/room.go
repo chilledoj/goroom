@@ -38,6 +38,7 @@ type Room[RoomId comparable, PlayerId comparable] struct {
 type Options[PlayerId comparable] struct {
 	OnConnect    func(player PlayerId)
 	OnDisconnect func(player PlayerId)
+	OnRemove     func(player PlayerId)
 	OnMessage    func(player PlayerId, message []byte)
 
 	CleanupPeriod time.Duration
@@ -196,7 +197,10 @@ func (room *Room[RoomId, PlayerId]) CleanUpPlayers() {
 				))
 			delete(room.players, playerId)
 			go func(pid PlayerId) {
-				room.opts.OnDisconnect(pid)
+				if room.opts.OnRemove == nil {
+					return
+				}
+				room.opts.OnRemove(pid)
 			}(playerId)
 		}
 	}

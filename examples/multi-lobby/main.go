@@ -94,6 +94,7 @@ func NewLobby(parentCtx context.Context, owner Player) *Lobby {
 		OnMessage: func(player PlayerIdentifier, message []byte) {
 			fmt.Printf("player %d sent message: %s\n", player, message)
 		},
+		OnRemove:      lobby.OnDisconnect,
 		CleanupPeriod: time.Second * 10,
 	})
 

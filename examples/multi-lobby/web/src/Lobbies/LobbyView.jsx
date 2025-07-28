@@ -1,11 +1,13 @@
 import {useEffect, useState} from "react";
 import useWebSocket from "react-use-websocket";
+import {usePlayer} from "../contexts/player.jsx";
 
 
 function LobbyView({lobby, playerId}) {
   const [socketUrl, setSocketUrl] = useState(`ws://${window.location.host}/api/lobbies/${lobby.id}/ws?playerId=${playerId}`);
   const [messageHistory, setMessageHistory] = useState([])
   const [players,setPlayers] = useState(lobby.players)
+  const {logout} = usePlayer();
 
   const { lastMessage, readyState,getWebSocket } = useWebSocket(socketUrl,{
     onMessage: (event) => {
@@ -40,6 +42,10 @@ function LobbyView({lobby, playerId}) {
       return
     }
     getWebSocket().binaryType = 'arraybuffer'
+    if(readyState === 3){
+      socket.close()
+      logout()
+    }
   },[readyState])
   // useEffect(() => {
   //   if (lastMessage !== null) {

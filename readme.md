@@ -4,7 +4,7 @@ A helper library hub to manage websockets, with the main use case being game ser
 
 ## About
 
-I didn't like the way that some of the other game server libraries were so opinionated in their design
+I didn't like the way that some of the other game server libraries worked
 
 It works differently to other game server libraries
 + It is just the websocket hub, not a full server.

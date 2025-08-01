@@ -3,6 +3,7 @@ package goroom
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 )
@@ -229,4 +230,33 @@ func (room *Room[RoomId, PlayerId]) SetStatus(status RoomStatus) {
 			go room.opts.OnRemove(pid)
 		}
 	}
+}
+
+func (room *Room[RoomId, PlayerId]) SetPlayers(players []PlayerId) error {
+	room.mu.Lock()
+	defer room.mu.Unlock()
+	for _, pid := range players {
+		_, ok := room.players[pid]
+		if ok {
+			continue
+		}
+		room.players[pid] = nil
+	}
+
+	//playersToRemove := make([]PlayerId, 0)
+	for pid, ss := range room.players {
+		if !slices.Contains(players, pid) {
+			if ss == nil {
+				continue
+			}
+			ss.Close()
+			room.players[pid] = nil
+			delete(room.players, pid)
+			delete(room.lastSeen, pid)
+			go room.opts.OnRemove(pid)
+			//playersToRemove = append(playersToRemove, pid)
+		}
+	}
+
+	return nil
 }

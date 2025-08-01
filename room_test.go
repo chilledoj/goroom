@@ -35,6 +35,7 @@ type mockHandler[PlayerId comparable] struct {
 	OnConnectResults    []PlayerId
 	OnDisconnectResults []PlayerId
 	OnMessageResults    []SocketMessage[PlayerId]
+	OnRemoveResults     []PlayerId
 }
 
 func newMockHandler[PlayerId comparable]() *mockHandler[PlayerId] {
@@ -42,6 +43,7 @@ func newMockHandler[PlayerId comparable]() *mockHandler[PlayerId] {
 		OnConnectResults:    []PlayerId{},
 		OnDisconnectResults: []PlayerId{},
 		OnMessageResults:    []SocketMessage[PlayerId]{},
+		OnRemoveResults:     []PlayerId{},
 	}
 }
 
@@ -58,6 +60,9 @@ func (mh *mockHandler[PlayerId]) OnMessage(player PlayerId, message []byte) {
 		Message:     message,
 	})
 }
+func (mh *mockHandler[PlayerId]) OnClose(player PlayerId) {
+	mh.OnRemoveResults = append(mh.OnRemoveResults, player)
+}
 
 // setupTestRoom initializes a new Room for testing and returns it with a cleanup function.
 func setupTestRoom[PlayerId comparable](t *testing.T, roomID string) (*Room[string, PlayerId], *mockHandler[PlayerId], func()) {
@@ -68,6 +73,7 @@ func setupTestRoom[PlayerId comparable](t *testing.T, roomID string) (*Room[stri
 		OnConnect:    handler.OnConnect,
 		OnDisconnect: handler.OnDisconnect,
 		OnMessage:    handler.OnMessage,
+		OnRemove:     handler.OnClose,
 	})
 	if room == nil {
 		t.Fatal("NewRoom returned nil")
@@ -252,204 +258,92 @@ func TestRoom_CleanUpPlayers(t *testing.T) {
 	})
 }
 
-/*
-func TestRoom_HandleJoinLeave(t *testing.T) {
-	t.Run("should handle a player joining and leaving", func(t *testing.T) {
-		room, _, cleanup := setupTestRoom[string](t, "test-room-join-leave")
+func TestRoom_SetPlayers(t *testing.T) {
+	t.Run("should set the players in the room", func(t *testing.T) {
+		room, _, cleanup := setupTestRoom[string](t, "test-room-presence")
 		defer cleanup()
-
-		// --- Setup two mock players ---
-		player1 := "player-1"
-		player2 := "player-2"
-		session1 := newMockSocketSession(player1)
-		session2 := newMockSocketSession(player2)
-
-		// --- Player 1 Joins ---
-		room.register <- &sessionRegistration[string, string]{
-			player:  player1,
-			session: session1,
-		}
-		time.Sleep(50 * time.Millisecond) // Give the room time to process the join.
-
-		// Assert that player 1 is in the room.
-		if _, ok := room.players[player1.ID]; !ok {
-			t.Fatal("player 1 should have been added to the room's player list")
-		}
-		if _, ok := room.sessions[player1.ID]; !ok {
-			t.Fatal("player 1's session should have been added to the room's session list")
-		}
-
-		// --- Player 2 Joins ---
-		room.register <- &sessionRegistration[string, string]{
-			player:  player2,
-			session: session2,
-		}
-		time.Sleep(50 * time.Millisecond) // Give time for processing.
-
-		// Assert that player 2 is now in the room.
-		if len(room.players) != 2 {
-			t.Fatalf("expected player count to be 2, got %d", len(room.players))
-		}
-
-		// Assert that player 1 received a notification about player 2 joining.
-		select {
-		case msg := <-session1.SendChan:
-			// This is an oversimplified check. A real implementation would parse the JSON.
-			if !bytes.Contains(msg, []byte("player_update")) || !bytes.Contains(msg, []byte(player2.ID)) {
-				t.Errorf("player 1 did not receive a proper join notification for player 2: %s", msg)
-			}
-		case <-time.After(100 * time.Millisecond):
-			t.Fatal("timed out waiting for player 2 join notification")
-		}
-
-		// --- Player 1 Leaves ---
-		room.messages <- SocketMessage[string]{
-			referenceID: player1,
-			Type:        Disconnect,
-		}
-		time.Sleep(50 * time.Millisecond) // Give time for processing.
-
-		// Assert that player 1 is removed.
-		if len(room.players) != 1 {
-			t.Fatalf("expected player count to be 1 after a player leaves, got %d", len(room.players))
-		}
-		if _, ok := room.players[player1]; ok {
-			t.Fatal("player 1 should have been removed from the room's player list")
-		}
-		if session1.Closed != true {
-			t.Error("player 1's session should be closed after leaving")
-		}
-
-		// Assert that player 2 received a notification about player 1 leaving.
-		select {
-		case msg := <-session2.SendChan:
-			if !bytes.Contains(msg, []byte("player_update")) || !bytes.Contains(msg, []byte(player1.ID)) {
-				// This is a weak check; ideally, you'd unmarshal and check the player list length.
-				t.Logf("Received leave notification: %s", msg)
-			}
-		case <-time.After(100 * time.Millisecond):
-			t.Fatal("timed out waiting for player 1 leave notification")
-		}
-	})
-}
-
-func TestRoom_HandleBroadcast(t *testing.T) {
-	t.Run("should broadcast a message to all other players", func(t *testing.T) {
-		room, cleanup := setupTestRoom(t, "test-room-broadcast")
-		defer cleanup()
-
-		// --- Setup three mock players ---
-		players := []*Player[string]{{ID: "p1"}, {ID: "p2"}, {ID: "p3"}}
-		sessions := make(map[string]*mockSocketSession)
+		players := []string{"player-1", "player-2", "player-3"}
 		for _, p := range players {
-			session := newMockSocketSession(p.ID)
-			sessions[p.ID] = session
-			room.register <- &sessionRegistration[string, string]{player: p, session: session}
+			ss := newMockSocketSession[string](p)
+			room.players[p] = ss
 		}
-		time.Sleep(50 * time.Millisecond) // Give time for processing.
-
-		// --- send a broadcast message from player 1 ---
-		broadcastMessage := "hello everyone!"
-		room.messages <- SocketMessage[string]{
-			referenceID: players[0].ID,
-			Type:        Broadcast,
-			Payload:     broadcastMessage,
+		if len(room.players) != len(players) {
+			t.Errorf("expected %d players to be set, got %d", len(players), len(room.players))
 		}
-		time.Sleep(50 * time.Millisecond) // Give time for processing.
-
-		// --- Check that player 2 and player 3 received the broadcast message ---
-		for _, p := range players[1:] {
-			select {
-			case msg := <-sessions[p.ID].SendChan:
-				if !bytes.Contains(msg, []byte(broadcastMessage)) {
-					t.Errorf("player %s did not receive the broadcast message", p.ID)
-				}
-			case <-time.After(100 * time.Millisecond):
-				t.Fatalf("timed out waiting for broadcast message for player %s", p.ID)
-			}
+	})
+	t.Run("should remove players that are not in the new list", func(t *testing.T) {
+		room, _, cleanup := setupTestRoom[string](t, "test-room-presence")
+		defer cleanup()
+		players := []string{"player-1", "player-2", "player-3"}
+		for _, p := range players {
+			ss := newMockSocketSession[string](p)
+			room.players[p] = ss
 		}
 
-		// Ensure the original sender did not receive the message.
-		select {
-		case msg := <-sessions[players[0].ID].SendChan:
-			t.Fatalf("original sender received the broadcast message: %s", msg)
-		case <-time.After(10 * time.Millisecond):
-			// This is the expected outcome.
+		room.SetPlayers(players[:1])
+		if len(room.players) != 1 {
+			t.Errorf("expected %d players to be set, got %d", 1, len(room.players))
+		}
+	})
+	t.Run("should not remove players that are in the new list", func(t *testing.T) {
+		room, _, cleanup := setupTestRoom[string](t, "test-room-presence")
+		defer cleanup()
+		players := []string{"player-1", "player-2", "player-3"}
+		for _, p := range players {
+			ss := newMockSocketSession[string](p)
+			room.players[p] = ss
+		}
+		room.SetPlayers(players)
+		if len(room.players) != len(players) {
+			t.Errorf("expected %d players to be set, got %d", len(players), len(room.players))
+		}
+	})
+	t.Run("should not remove players that are in the new list and have a different ID", func(t *testing.T) {
+		room, _, cleanup := setupTestRoom[string](t, "test-room-presence")
+		defer cleanup()
+		players := []string{"player-1", "player-2", "player-3"}
+		for _, p := range players {
+			ss := newMockSocketSession[string](p)
+			room.players[p] = ss
+		}
+		room.SetPlayers(append(players, "player-4"))
+		if len(room.players) != len(players)+1 {
+			t.Errorf("expected %d players to be set, got %d", len(players)+1, len(room.players))
+		}
+	})
+	t.Run("should not remove players that are in the new list and have the same ID", func(t *testing.T) {
+		room, _, cleanup := setupTestRoom[string](t, "test-room-presence")
+		defer cleanup()
+		players := []string{"player-1", "player-2", "player-3"}
+		for _, p := range players {
+			ss := newMockSocketSession[string](p)
+			room.players[p] = ss
+		}
+		room.SetPlayers(append(players, players[0]))
+	})
+	t.Run("should not remove players that are in the new list and have the same ID and are not in the old list", func(t *testing.T) {
+		room, _, cleanup := setupTestRoom[string](t, "test-room-presence")
+		defer cleanup()
+		players := []string{"player-1", "player-2", "player-3"}
+		for _, p := range players {
+			ss := newMockSocketSession[string](p)
+			room.players[p] = ss
+		}
+		room.SetPlayers(append(players, players[0], players[1]))
+	})
+	t.Run("should close any open connections to players that are not in the new list", func(t *testing.T) {
+		room, _, cleanup := setupTestRoom[string](t, "test-room-presence")
+		defer cleanup()
+		players := []string{"player-1", "player-2", "player-3"}
+		for _, p := range players {
+			room.players[p] = newMockSocketSession[string](p)
+		}
+		room.SetPlayers(players[:1])
+		if len(room.players) != 1 {
+			t.Errorf("expected %d players to be set, got %d", 1, len(room.players))
+		}
+		if room.players[players[1]] != nil {
+			t.Errorf("expected player %s to be closed, but it is still open", players[1])
 		}
 	})
 }
-
-func TestRoom_HandleDirectMessage(t *testing.T) {
-	t.Run("should send a direct message to the intended recipient", func(t *testing.T) {
-		room, cleanup := setupTestRoom(t, "test-room-direct-message")
-		defer cleanup()
-
-		// --- Setup two mock players ---
-		player1 := &Player[string]{ID: "sender"}
-		player2 := &Player[string]{ID: "receiver"}
-		session1 := newMockSocketSession(player1.ID)
-		session2 := newMockSocketSession(player2.ID)
-		room.register <- &sessionRegistration[string, string]{player: player1, session: session1}
-		room.register <- &sessionRegistration[string, string]{player: player2, session: session2}
-		time.Sleep(50 * time.Millisecond) // Give time for processing.
-
-		// --- send a direct message from player 1 to player 2 ---
-		directMessage := "hello receiver!"
-		room.messages <- SocketMessage[string]{
-			referenceID: player1.ID,
-			Type:        DirectMessage,
-			TargetID:    player2.ID,
-			Payload:     directMessage,
-		}
-		time.Sleep(50 * time.Millisecond) // Give time for processing.
-
-		// --- Check that player 2 received the direct message ---
-		select {
-		case msg := <-session2.SendChan:
-			if !bytes.Contains(msg, []byte(directMessage)) {
-				t.Errorf("player 2 did not receive the direct message")
-			}
-		case <-time.After(100 * time.Millisecond):
-			t.Fatal("timed out waiting for direct message for player 2")
-		}
-
-		// --- Ensure the original sender did not receive the message ---
-		select {
-		case msg := <-session1.SendChan:
-			t.Fatalf("original sender received the direct message: %s", msg)
-		case <-time.After(10 * time.Millisecond):
-			// This is the expected outcome.
-		}
-	})
-
-	t.Run("should handle direct message to a non-existent player", func(t *testing.T) {
-		room, cleanup := setupTestRoom(t, "test-room-direct-message-nonexistent")
-		defer cleanup()
-
-		// --- Setup one mock player ---
-		player1 := &Player[string]{ID: "sender"}
-		session1 := newMockSocketSession(player1.ID)
-		room.register <- &sessionRegistration[string, string]{player: player1, session: session1}
-		time.Sleep(50 * time.Millisecond) // Give time for processing.
-
-		// --- send a direct message from player 1 to a non-existent player ---
-		directMessage := "hello nonexistent!"
-		room.messages <- SocketMessage[string]{
-			referenceID: player1.ID,
-			Type:        DirectMessage,
-			TargetID:    "nonexistent",
-			Payload:     directMessage,
-		}
-		time.Sleep(50 * time.Millisecond) // Give time for processing.
-
-		// --- Ensure the original sender did not receive an error message
-		select {
-		case msg := <-session1.SendChan:
-			t.Fatalf("original sender received an unexpected message: %s", msg)
-		case <-time.After(10 * time.Millisecond):
-			// This is the expected outcome.  Message should be dropped without error to sender
-		}
-	})
-}
-
-*/

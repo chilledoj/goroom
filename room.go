@@ -8,24 +8,24 @@ import (
 	"time"
 )
 
-type SocketSessioner[PlayerId comparable] interface {
-	ReferenceId() PlayerId
+type SocketSessioner[PlayerID comparable] interface {
+	ReferenceID() PlayerID
 	Send(message []byte)
 	Close()
 }
 
-type Room[RoomId comparable, PlayerId comparable] struct {
+type Room[RoomId comparable, PlayerID comparable] struct {
 	ID   RoomId
-	opts Options[PlayerId]
+	opts Options[PlayerID]
 
 	mu            sync.RWMutex
 	Status        RoomStatus
-	players       map[PlayerId]SocketSessioner[PlayerId]
-	lastSeen      map[PlayerId]time.Time
+	players       map[PlayerID]SocketSessioner[PlayerID]
+	lastSeen      map[PlayerID]time.Time
 	cleanupPeriod time.Duration
 
 	// MessageProcessing
-	messages chan SocketMessage[PlayerId]
+	messages chan SocketMessage[PlayerID]
 
 	// Concurrency
 	ctx    context.Context
@@ -36,11 +36,11 @@ type Room[RoomId comparable, PlayerId comparable] struct {
 	Slogger *slog.Logger
 }
 
-type Options[PlayerId comparable] struct {
-	OnConnect    func(player PlayerId)
-	OnDisconnect func(player PlayerId)
-	OnRemove     func(player PlayerId)
-	OnMessage    func(player PlayerId, message []byte)
+type Options[PlayerID comparable] struct {
+	OnConnect    func(player PlayerID)
+	OnDisconnect func(player PlayerID)
+	OnRemove     func(player PlayerID)
+	OnMessage    func(player PlayerID, message []byte)
 
 	CleanupPeriod time.Duration
 
@@ -49,18 +49,18 @@ type Options[PlayerId comparable] struct {
 
 const defaultCleanupPeriod time.Duration = time.Second * 30
 
-func NewRoom[RoomId comparable, PlayerId comparable](parentCtx context.Context, id RoomId, options Options[PlayerId]) *Room[RoomId, PlayerId] {
+func NewRoom[RoomId comparable, PlayerID comparable](parentCtx context.Context, id RoomId, options Options[PlayerID]) *Room[RoomId, PlayerID] {
 	ctx, cancel := context.WithCancel(parentCtx)
-	room := &Room[RoomId, PlayerId]{
+	room := &Room[RoomId, PlayerID]{
 		ID:       id,
 		opts:     options,
 		Status:   Open,
-		players:  make(map[PlayerId]SocketSessioner[PlayerId]), //*SocketSession[PlayerId]),
-		messages: make(chan SocketMessage[PlayerId], 255),
+		players:  make(map[PlayerID]SocketSessioner[PlayerID]), //*SocketSession[PlayerID]),
+		messages: make(chan SocketMessage[PlayerID], 255),
 		ctx:      ctx,
 		cancel:   cancel,
 		wg:       sync.WaitGroup{},
-		lastSeen: make(map[PlayerId]time.Time),
+		lastSeen: make(map[PlayerID]time.Time),
 	}
 	if options.CleanupPeriod == 0 {
 		room.cleanupPeriod = defaultCleanupPeriod
@@ -77,12 +77,12 @@ func NewRoom[RoomId comparable, PlayerId comparable](parentCtx context.Context, 
 	return room
 }
 
-func (room *Room[RoomId, PlayerId]) GetPlayerPresence() []PlayerPresence[PlayerId] {
+func (room *Room[RoomId, PlayerID]) GetPlayerPresence() []PlayerPresence[PlayerID] {
 	room.mu.RLock()
-	playerPresences := make([]PlayerPresence[PlayerId], 0, len(room.players))
-	for playerId, p := range room.players {
-		playerPresences = append(playerPresences, PlayerPresence[PlayerId]{
-			ID:          playerId,
+	playerPresences := make([]PlayerPresence[PlayerID], 0, len(room.players))
+	for playerID, p := range room.players {
+		playerPresences = append(playerPresences, PlayerPresence[PlayerID]{
+			ID:          playerID,
 			IsConnected: p != nil,
 		})
 	}
@@ -90,7 +90,7 @@ func (room *Room[RoomId, PlayerId]) GetPlayerPresence() []PlayerPresence[PlayerI
 	return playerPresences
 }
 
-func (room *Room[RoomId, PlayerId]) Start() {
+func (room *Room[RoomId, PlayerID]) Start() {
 	sl := room.Slogger.With("func", "room.Start")
 	sl.Debug("starting")
 	ticker := time.NewTicker(room.cleanupPeriod)
@@ -126,32 +126,32 @@ func (room *Room[RoomId, PlayerId]) Start() {
 	}
 }
 
-func (room *Room[RoomId, PlayerId]) Stop() {
+func (room *Room[RoomId, PlayerID]) Stop() {
 	sl := room.Slogger.With("func", "room.Stop")
 	sl.Debug("closing", "status", "started")
 	room.mu.RLock()
-	playersToClose := make([]PlayerId, 0, len(room.players))
+	playersToClose := make([]PlayerID, 0, len(room.players))
 
-	for playerId := range room.players {
-		playersToClose = append(playersToClose, playerId)
+	for playerID := range room.players {
+		playersToClose = append(playersToClose, playerID)
 	}
 	room.mu.RUnlock()
-	for _, playerId := range playersToClose {
-		sl.Debug("closing player", "player", playerId)
-		playerConn := room.players[playerId]
+	for _, playerID := range playersToClose {
+		sl.Debug("closing player", "player", playerID)
+		playerConn := room.players[playerID]
 		if playerConn == nil {
-			sl.Debug("player already closed", "player", playerId)
+			sl.Debug("player already closed", "player", playerID)
 			continue
 		}
 		playerConn.Close() // should be blocking
-		sl.Debug("closed player", "player", playerId)
+		sl.Debug("closed player", "player", playerID)
 	}
 	close(room.messages)
 	room.cancel()
 	sl.Debug("room closed", "status", "completed")
 }
 
-func (room *Room[RoomId, PlayerId]) SendMessageToPlayer(player PlayerId, message []byte) {
+func (room *Room[RoomId, PlayerID]) SendMessageToPlayer(player PlayerID, message []byte) {
 	sl := room.Slogger.With("func", "room.SendMessageToPlayer")
 	sl.Debug("sending message", "player", player, "message", message)
 	room.mu.RLock()
@@ -165,20 +165,20 @@ func (room *Room[RoomId, PlayerId]) SendMessageToPlayer(player PlayerId, message
 	ps.Send(message)
 }
 
-func (room *Room[RoomId, PlayerId]) SendMessageToAllPlayers(message []byte) {
+func (room *Room[RoomId, PlayerID]) SendMessageToAllPlayers(message []byte) {
 	sl := room.Slogger.With("func", "room.SendMessageToAllPlayers")
 	room.mu.RLock()
 	for _, p := range room.players {
 		if p == nil {
 			continue
 		}
-		sl.Debug("sending message", "player", p.ReferenceId())
+		sl.Debug("sending message", "player", p.ReferenceID())
 		p.Send(message)
 	}
 	room.mu.RUnlock()
 }
 
-func (room *Room[RoomId, PlayerId]) CleanUpPlayers() {
+func (room *Room[RoomId, PlayerID]) CleanUpPlayers() {
 	if room.Status != Open {
 		return
 	}
@@ -187,29 +187,29 @@ func (room *Room[RoomId, PlayerId]) CleanUpPlayers() {
 	room.mu.Lock()
 	defer room.mu.Unlock()
 
-	for playerId, p := range room.players {
-		if p == nil && time.Since(room.lastSeen[playerId]) > room.cleanupPeriod {
-			sl.Info("removing", "player", playerId,
+	for playerID, p := range room.players {
+		if p == nil && time.Since(room.lastSeen[playerID]) > room.cleanupPeriod {
+			sl.Info("removing", "player", playerID,
 				slog.Group("checks",
-					"lastSeen", room.lastSeen[playerId],
-					"timeSince", time.Since(room.lastSeen[playerId]),
+					"lastSeen", room.lastSeen[playerID],
+					"timeSince", time.Since(room.lastSeen[playerID]),
 					"cleanupPeriod", room.cleanupPeriod,
-					"cleanupPeriodExceeded", time.Since(room.lastSeen[playerId]) > room.cleanupPeriod,
+					"cleanupPeriodExceeded", time.Since(room.lastSeen[playerID]) > room.cleanupPeriod,
 				))
-			delete(room.players, playerId)
-			go func(pid PlayerId) {
+			delete(room.players, playerID)
+			go func(pid PlayerID) {
 				if room.opts.OnRemove == nil {
 					return
 				}
 				room.opts.OnRemove(pid)
-			}(playerId)
+			}(playerID)
 		}
 	}
 
 	sl.Debug("finished")
 }
 
-func (room *Room[RoomId, PlayerId]) SetStatus(status RoomStatus) {
+func (room *Room[RoomId, PlayerID]) SetStatus(status RoomStatus) {
 	if room.Status == status {
 		return
 	}
@@ -232,7 +232,7 @@ func (room *Room[RoomId, PlayerId]) SetStatus(status RoomStatus) {
 	}
 }
 
-func (room *Room[RoomId, PlayerId]) SetPlayers(players []PlayerId) error {
+func (room *Room[RoomId, PlayerID]) SetPlayers(players []PlayerID) error {
 	room.mu.Lock()
 	defer room.mu.Unlock()
 	for _, pid := range players {
@@ -243,7 +243,7 @@ func (room *Room[RoomId, PlayerId]) SetPlayers(players []PlayerId) error {
 		room.players[pid] = nil
 	}
 
-	//playersToRemove := make([]PlayerId, 0)
+	//playersToRemove := make([]PlayerID, 0)
 	for pid, ss := range room.players {
 		if !slices.Contains(players, pid) {
 			if ss == nil {

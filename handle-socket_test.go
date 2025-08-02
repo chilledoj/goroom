@@ -100,13 +100,16 @@ func TestRoom_HandleSocketWithPlayer(t *testing.T) {
 		// Got to wait for the go routine to run the OnConnect call
 		<-time.After(time.Millisecond * 10)
 
-		if len(handler.OnConnectResults) != 1 {
-			t.Fatalf("expected onConnect to be called once, got %d", len(handler.OnConnectResults))
+		connResults := handler.GetOnConnectResults()
+		if len(connResults) != 1 {
+			t.Fatalf("expected onConnect to be called once, got %d", len(connResults))
 		}
-		if handler.OnConnectResults[0] != player {
-			t.Fatalf("expected onConnect to be called with player '%s', got '%s'", player, handler.OnConnectResults[0])
+		if connResults[0] != player {
+			t.Fatalf("expected onConnect to be called with player '%s', got '%s'", player, connResults[0])
 		}
 
+		room.mu.RLock()
+		defer room.mu.RUnlock()
 		if len(room.players) != 1 {
 			t.Fatalf("expected player count to be 1, got %d", len(room.players))
 		}
@@ -127,8 +130,8 @@ func generateChallengeKey() (string, error) {
 
 func TestRoom_CanJoin(t *testing.T) {
 	t.Run("should return true if room is open", func(t *testing.T) {
-		roomId := "test-room-1"
-		room, _, cleanup := setupTestRoom[string](t, roomId)
+		roomID := "test-room-1"
+		room, _, cleanup := setupTestRoom[string](t, roomID)
 		defer cleanup()
 
 		if !room.CanJoin("player-1") {
@@ -136,8 +139,8 @@ func TestRoom_CanJoin(t *testing.T) {
 		}
 	})
 	t.Run("should return false if room is inactive", func(t *testing.T) {
-		roomId := "test-room-2"
-		room, _, cleanup := setupTestRoom[string](t, roomId)
+		roomID := "test-room-2"
+		room, _, cleanup := setupTestRoom[string](t, roomID)
 		defer cleanup()
 		room.Status = Inactive
 		if room.CanJoin("player-1") {
@@ -145,8 +148,8 @@ func TestRoom_CanJoin(t *testing.T) {
 		}
 	})
 	t.Run("should return false if room is locked and is new player", func(t *testing.T) {
-		roomId := "test-room-2"
-		room, _, cleanup := setupTestRoom[string](t, roomId)
+		roomID := "test-room-2"
+		room, _, cleanup := setupTestRoom[string](t, roomID)
 		defer cleanup()
 
 		room.Status = Locked
@@ -156,8 +159,8 @@ func TestRoom_CanJoin(t *testing.T) {
 		}
 	})
 	t.Run("should return true if room is locked and is existing disconnected player", func(t *testing.T) {
-		roomId := "test-room-2"
-		room, _, cleanup := setupTestRoom[string](t, roomId)
+		roomID := "test-room-2"
+		room, _, cleanup := setupTestRoom[string](t, roomID)
 		defer cleanup()
 
 		p1 := "player-1"
@@ -171,8 +174,8 @@ func TestRoom_CanJoin(t *testing.T) {
 		}
 	})
 	t.Run("should return false if player is already connected", func(t *testing.T) {
-		roomId := "test-room-3"
-		room, _, cleanup := setupTestRoom[string](t, roomId)
+		roomID := "test-room-3"
+		room, _, cleanup := setupTestRoom[string](t, roomID)
 		defer cleanup()
 
 		p1 := "player-1"

@@ -7,19 +7,19 @@ import (
 	"time"
 )
 
-type GetPlayerIdFromRequester[PlayerId comparable] interface {
+type GetPlayerIDFromRequester[PlayerId comparable] interface {
 	GetPlayerIdFromRequest(w http.ResponseWriter, r *http.Request) PlayerId
 }
 type ErrorHandler func(w http.ResponseWriter, r *http.Request, err error)
 
-func (room *Room[RoomId, PlayerId]) HandleSocketWithPlayer(playerId PlayerId, onError ErrorHandler) http.HandlerFunc {
+func (room *Room[RoomId, PlayerId]) HandleSocketWithPlayer(playerID PlayerId, onError ErrorHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var zero PlayerId
-		if playerId == zero {
-			onError(w, r, errors.New("playerId is nil"))
+		if playerID == zero {
+			onError(w, r, errors.New("playerID is nil"))
 			return
 		}
-		if !room.CanJoin(playerId) {
+		if !room.CanJoin(playerID) {
 			onError(w, r, errors.New("player cannot join room"))
 			return
 		}
@@ -29,29 +29,29 @@ func (room *Room[RoomId, PlayerId]) HandleSocketWithPlayer(playerId PlayerId, on
 			onError(w, r, err)
 			return
 		}
-		room.Slogger.Info("new socket connection", "player", playerId)
+		room.Slogger.Info("new socket connection", "player", playerID)
 
-		ss := NewSocketSession[PlayerId](conn, playerId, room.messages)
+		ss := NewSocketSession[PlayerId](conn, playerID, room.messages)
 
 		room.mu.Lock()
-		room.players[playerId] = ss
+		room.players[playerID] = ss
 		room.mu.Unlock()
 
 		go func() {
 			<-time.After(time.Millisecond * 1)
-			room.opts.OnConnect(playerId)
+			room.opts.OnConnect(playerID)
 		}()
 	}
 }
 
-func (room *Room[RoomId, PlayerId]) HandleSocket(playerStore GetPlayerIdFromRequester[PlayerId], onError ErrorHandler) http.HandlerFunc {
+func (room *Room[RoomId, PlayerId]) HandleSocket(playerStore GetPlayerIDFromRequester[PlayerId], onError ErrorHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		playerId := playerStore.GetPlayerIdFromRequest(w, r)
-		room.HandleSocketWithPlayer(playerId, onError)(w, r)
+		playerID := playerStore.GetPlayerIdFromRequest(w, r)
+		room.HandleSocketWithPlayer(playerID, onError)(w, r)
 	}
 }
 
-func (room *Room[RoomId, PlayerId]) CanJoin(playerId PlayerId) bool {
+func (room *Room[RoomId, PlayerId]) CanJoin(playerID PlayerId) bool {
 	if room.Status == Inactive {
 		return false
 	}
@@ -60,7 +60,7 @@ func (room *Room[RoomId, PlayerId]) CanJoin(playerId PlayerId) bool {
 	room.mu.RLock()
 	defer room.mu.RUnlock()
 
-	p, ok := room.players[playerId]
+	p, ok := room.players[playerID]
 	if ok && p != nil {
 		// Player is already connected. Only allow one connection.
 		return false

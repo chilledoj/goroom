@@ -68,7 +68,7 @@ func NewSocketSession[PlayerId comparable](conn net.Conn, referenceID PlayerId, 
 	return s
 }
 
-func (s *SocketSession[PlayerId]) ReferenceId() PlayerId {
+func (s *SocketSession[PlayerId]) ReferenceID() PlayerId {
 	return s.referenceID
 }
 

@@ -2,74 +2,103 @@ package goroom
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
 
 // mockSocketSession provides a way to simulate a SocketSession for testing purposes.
-type mockSocketSession[PlayerId comparable] struct {
-	ReferenceID  PlayerId
+type mockSocketSession[PlayerID comparable] struct {
+	referenceID  PlayerID
 	sentMessages [][]byte
 }
 
-func (m *mockSocketSession[PlayerId]) ReferenceId() PlayerId {
-	return m.ReferenceID
+func (m *mockSocketSession[PlayerID]) ReferenceID() PlayerID {
+	return m.referenceID
 }
 
-func (m *mockSocketSession[PlayerId]) Send(message []byte) {
+func (m *mockSocketSession[PlayerID]) Send(message []byte) {
 	m.sentMessages = append(m.sentMessages, message)
-	return
 }
 
-func (m *mockSocketSession[PlayerId]) Close() {}
+func (m *mockSocketSession[PlayerID]) Close() {}
 
 // newMockSocketSession creates a new mock session for a given player ID.
-func newMockSocketSession[PlayerId comparable](playerID PlayerId) *mockSocketSession[PlayerId] {
-	return &mockSocketSession[PlayerId]{
-		ReferenceID:  playerID,
+func newMockSocketSession[PlayerID comparable](playerID PlayerID) *mockSocketSession[PlayerID] {
+	return &mockSocketSession[PlayerID]{
+		referenceID:  playerID,
 		sentMessages: make([][]byte, 0),
 	}
 }
 
-type mockHandler[PlayerId comparable] struct {
-	OnConnectResults    []PlayerId
-	OnDisconnectResults []PlayerId
-	OnMessageResults    []SocketMessage[PlayerId]
-	OnRemoveResults     []PlayerId
+type mockHandler[PlayerID comparable] struct {
+	mu                  sync.RWMutex
+	OnConnectResults    []PlayerID
+	OnDisconnectResults []PlayerID
+	OnMessageResults    []SocketMessage[PlayerID]
+	OnRemoveResults     []PlayerID
 }
 
-func newMockHandler[PlayerId comparable]() *mockHandler[PlayerId] {
-	return &mockHandler[PlayerId]{
-		OnConnectResults:    []PlayerId{},
-		OnDisconnectResults: []PlayerId{},
-		OnMessageResults:    []SocketMessage[PlayerId]{},
-		OnRemoveResults:     []PlayerId{},
+func newMockHandler[PlayerID comparable]() *mockHandler[PlayerID] {
+	return &mockHandler[PlayerID]{
+		OnConnectResults:    []PlayerID{},
+		OnDisconnectResults: []PlayerID{},
+		OnMessageResults:    []SocketMessage[PlayerID]{},
+		OnRemoveResults:     []PlayerID{},
 	}
 }
+func (mh *mockHandler[PlayerID]) GetOnConnectResults() []PlayerID {
+	mh.mu.RLock()
+	defer mh.mu.RUnlock()
+	return mh.OnConnectResults
+}
+func (mh *mockHandler[PlayerID]) GetOnDisconnectResults() []PlayerID {
+	mh.mu.RLock()
+	defer mh.mu.RUnlock()
+	return mh.OnDisconnectResults
+}
+func (mh *mockHandler[PlayerID]) GetOnMessageResults() []SocketMessage[PlayerID] {
+	mh.mu.RLock()
+	defer mh.mu.RUnlock()
+	return mh.OnMessageResults
+}
+func (mh *mockHandler[PlayerID]) GetOnRemoveResults() []PlayerID {
+	mh.mu.RLock()
+	defer mh.mu.RUnlock()
+	return mh.OnRemoveResults
+}
 
-func (mh *mockHandler[PlayerId]) OnConnect(player PlayerId) {
+func (mh *mockHandler[PlayerID]) OnConnect(player PlayerID) {
+	mh.mu.Lock()
 	mh.OnConnectResults = append(mh.OnConnectResults, player)
+	mh.mu.Unlock()
 }
-func (mh *mockHandler[PlayerId]) OnDisconnect(player PlayerId) {
+func (mh *mockHandler[PlayerID]) OnDisconnect(player PlayerID) {
+	mh.mu.Lock()
 	mh.OnDisconnectResults = append(mh.OnDisconnectResults, player)
+	mh.mu.Unlock()
 }
-func (mh *mockHandler[PlayerId]) OnMessage(player PlayerId, message []byte) {
-	mh.OnMessageResults = append(mh.OnMessageResults, SocketMessage[PlayerId]{
+func (mh *mockHandler[PlayerID]) OnMessage(player PlayerID, message []byte) {
+	mh.mu.Lock()
+	mh.OnMessageResults = append(mh.OnMessageResults, SocketMessage[PlayerID]{
 		ReferenceID: player,
 		Type:        Message,
 		Message:     message,
 	})
+	mh.mu.Unlock()
 }
-func (mh *mockHandler[PlayerId]) OnClose(player PlayerId) {
+func (mh *mockHandler[PlayerID]) OnClose(player PlayerID) {
+	mh.mu.Lock()
 	mh.OnRemoveResults = append(mh.OnRemoveResults, player)
+	mh.mu.Unlock()
 }
 
 // setupTestRoom initializes a new Room for testing and returns it with a cleanup function.
-func setupTestRoom[PlayerId comparable](t *testing.T, roomID string) (*Room[string, PlayerId], *mockHandler[PlayerId], func()) {
+func setupTestRoom[PlayerID comparable](t *testing.T, roomID string) (*Room[string, PlayerID], *mockHandler[PlayerID], func()) {
 
-	handler := newMockHandler[PlayerId]()
+	handler := newMockHandler[PlayerID]()
 
-	room := NewRoom[string, PlayerId](context.Background(), roomID, Options[PlayerId]{
+	room := NewRoom[string, PlayerID](context.Background(), roomID, Options[PlayerID]{
 		OnConnect:    handler.OnConnect,
 		OnDisconnect: handler.OnDisconnect,
 		OnMessage:    handler.OnMessage,
@@ -92,19 +121,20 @@ func setupTestRoom[PlayerId comparable](t *testing.T, roomID string) (*Room[stri
 
 func TestNewRoom(t *testing.T) {
 	t.Run("should create a new room with initial values", func(t *testing.T) {
-		roomId := "test-room-1"
-		room, mock, cleanup := setupTestRoom[string](t, roomId)
+		roomID := "test-room-1"
+		room, mock, cleanup := setupTestRoom[string](t, roomID)
 		defer cleanup()
 
-		if room.ID != roomId {
-			t.Errorf("expected room ID to be '%s', got '%s'", roomId, room.ID)
+		if room.ID != roomID {
+			t.Errorf("expected room ID to be '%s', got '%s'", roomID, room.ID)
 		}
 		if len(room.players) != 0 {
 			t.Errorf("expected initial player count to be 0, got %d", len(room.players))
 		}
 
-		if len(mock.OnConnectResults) != 0 {
-			t.Errorf("expected onConnect to NOT be called, got %d", len(mock.OnConnectResults))
+		connResults := mock.GetOnConnectResults()
+		if len(connResults) != 0 {
+			t.Errorf("expected onConnect to NOT be called, got %d", len(connResults))
 		}
 
 	})
@@ -240,8 +270,8 @@ func TestRoom_CleanUpPlayers(t *testing.T) {
 		room.CleanUpPlayers()
 
 		count := 0
-		for playerId := range room.players {
-			if room.players[playerId] == nil {
+		for playerID := range room.players {
+			if room.players[playerID] == nil {
 				count++
 			}
 		}

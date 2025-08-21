@@ -77,7 +77,7 @@ func NewRoom[RoomId comparable, PlayerID comparable](parentCtx context.Context, 
 	return room
 }
 
-func (room *Room[RoomId, PlayerID]) GetPlayerPresence() []PlayerPresence[PlayerID] {
+func (room *Room[RoomId, PlayerID]) GetPlayerPresences() []PlayerPresence[PlayerID] {
 	room.mu.RLock()
 	playerPresences := make([]PlayerPresence[PlayerID], 0, len(room.players))
 	for playerID, p := range room.players {
@@ -88,6 +88,16 @@ func (room *Room[RoomId, PlayerID]) GetPlayerPresence() []PlayerPresence[PlayerI
 	}
 	room.mu.RUnlock()
 	return playerPresences
+}
+
+func (room *Room[RoomId, PlayerID]) GetPlayerPresence(playerID PlayerID) PlayerPresence[PlayerID] {
+	room.mu.RLock()
+	connP := room.players[playerID]
+	room.mu.RUnlock()
+	return PlayerPresence[PlayerID]{
+		ID:          playerID,
+		IsConnected: connP != nil,
+	}
 }
 
 func (room *Room[RoomId, PlayerID]) Start() {

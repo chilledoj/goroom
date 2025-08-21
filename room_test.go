@@ -166,7 +166,7 @@ func TestRoom_Run_Close(t *testing.T) {
 	})
 }
 
-func TestRoom_GetPlayerPresence(t *testing.T) {
+func TestRoom_GetPlayerPresences(t *testing.T) {
 	t.Run("should return the presence of a player", func(t *testing.T) {
 		room, _, cleanup := setupTestRoom[string](t, "test-room-presence")
 		defer cleanup()
@@ -177,7 +177,7 @@ func TestRoom_GetPlayerPresence(t *testing.T) {
 			room.players[p] = nil
 		}
 
-		presence := room.GetPlayerPresence()
+		presence := room.GetPlayerPresences()
 
 		if len(presence) != len(players) {
 			t.Fatalf("expected presence count to be %d, got %d", len(players), len(presence))
@@ -218,6 +218,29 @@ func TestRoom_SendMessageToPlayer(t *testing.T) {
 		}
 		if len(room.players[players[2]].(*mockSocketSession[string]).sentMessages) != 0 {
 			t.Errorf("expected %s to receive 0 messages, got %d", players[2], len(room.players[players[2]].(*mockSocketSession[string]).sentMessages))
+		}
+	})
+}
+
+func TestRoom_GetPlayerPresence(t *testing.T) {
+	t.Run("should return the presence of a player", func(t *testing.T) {
+		room, _, cleanup := setupTestRoom[string](t, "test-room-presence")
+		defer cleanup()
+		players := []string{"player-1", "player-2", "player-3"}
+		room.players = make(map[string]SocketSessioner[string])
+
+		p1Session := newMockSocketSession[string](players[0])
+		room.players[players[0]] = p1Session
+		room.players[players[1]] = nil
+
+		if !room.GetPlayerPresence(players[0]).IsConnected {
+			t.Errorf("expected presence to be true for player %s", players[0])
+		}
+		if room.GetPlayerPresence(players[1]).IsConnected {
+			t.Errorf("expected presence to be false for player %s", players[1])
+		}
+		if room.GetPlayerPresence(players[2]).IsConnected {
+			t.Errorf("expected presence to be false for player %s", players[2])
 		}
 	})
 }

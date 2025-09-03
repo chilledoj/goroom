@@ -2,6 +2,8 @@ package goroom
 
 import (
 	"context"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -307,6 +309,69 @@ func TestRoom_CleanUpPlayers(t *testing.T) {
 
 		if count != expectedCount {
 			t.Errorf("expected %d players to be removed from the room, got %d", expectedCount, count)
+		}
+	})
+}
+
+func TestRoom_SetRoomId(t *testing.T) {
+	t.Run("should set the room ID", func(t *testing.T) {
+		ctx := context.Background()
+		room := NewRoom[string, string](ctx, "initial-id", Options[string]{})
+
+		newID := "new-id"
+		room.SetRoomID(newID)
+
+		if room.ID != newID {
+			t.Errorf("expected room ID to be %s, but got %s", newID, room.ID)
+		}
+	})
+	t.Run("should update the slogger", func(t *testing.T) {
+
+		var buf strings.Builder
+		sl := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}))
+
+		ctx := context.Background()
+		initID := "initial-id"
+		room := NewRoom[string, string](ctx, initID, Options[string]{
+			Slogger: sl,
+		})
+
+		newID := "new-id"
+		room.SetRoomID(newID)
+
+		// Do something to trigger log output
+		room.CleanUpPlayers()
+
+		logOutput := buf.String()
+		if strings.Contains(logOutput, initID) {
+			t.Errorf("expected log output to not contain %s, but got %s", initID, logOutput)
+		}
+		if !strings.Contains(logOutput, newID) {
+			t.Errorf("expected log output to contain %s, but got %s", newID, logOutput)
+		}
+	})
+
+	t.Run("should not update if room has already been started", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		initID := "initial-id"
+		room := NewRoom[string, string](ctx, initID, Options[string]{})
+
+		go room.Start()
+
+		// let's wait for the go routine to do something
+		time.Sleep(10 * time.Millisecond)
+
+		newID := "new-id"
+		room.SetRoomID(newID)
+
+		if room.ID != initID {
+			t.Errorf("expected room ID to be %s, but got %s", initID, room.ID)
+		}
+		if room.ctx.Err() != nil {
+			t.Errorf("expected room context to not be done, but got done")
 		}
 	})
 }

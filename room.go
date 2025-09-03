@@ -19,6 +19,7 @@ type Room[RoomId comparable, PlayerID comparable] struct {
 	opts Options[PlayerID]
 
 	mu            sync.RWMutex
+	isStarted     bool
 	Status        RoomStatus
 	players       map[PlayerID]SocketSessioner[PlayerID]
 	lastSeen      map[PlayerID]time.Time
@@ -30,7 +31,7 @@ type Room[RoomId comparable, PlayerID comparable] struct {
 	// Concurrency
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	//wg     sync.WaitGroup
 
 	// Logging
 	Slogger *slog.Logger
@@ -52,15 +53,15 @@ const defaultCleanupPeriod time.Duration = time.Second * 30
 func NewRoom[RoomId comparable, PlayerID comparable](parentCtx context.Context, id RoomId, options Options[PlayerID]) *Room[RoomId, PlayerID] {
 	ctx, cancel := context.WithCancel(parentCtx)
 	room := &Room[RoomId, PlayerID]{
-		ID:       id,
-		opts:     options,
-		Status:   Open,
-		players:  make(map[PlayerID]SocketSessioner[PlayerID]), //*SocketSession[PlayerID]),
-		messages: make(chan SocketMessage[PlayerID], 255),
-		ctx:      ctx,
-		cancel:   cancel,
-		wg:       sync.WaitGroup{},
-		lastSeen: make(map[PlayerID]time.Time),
+		ID:        id,
+		opts:      options,
+		Status:    Open,
+		players:   make(map[PlayerID]SocketSessioner[PlayerID]), //*SocketSession[PlayerID]),
+		messages:  make(chan SocketMessage[PlayerID], 255),
+		ctx:       ctx,
+		cancel:    cancel,
+		lastSeen:  make(map[PlayerID]time.Time),
+		isStarted: false,
 	}
 	if options.CleanupPeriod == 0 {
 		room.cleanupPeriod = defaultCleanupPeriod
@@ -101,6 +102,14 @@ func (room *Room[RoomId, PlayerID]) GetPlayerPresence(playerID PlayerID) PlayerP
 }
 
 func (room *Room[RoomId, PlayerID]) Start() {
+	room.mu.Lock()
+	if room.isStarted {
+		room.mu.Unlock()
+		return
+	}
+	room.isStarted = true
+	room.mu.Unlock()
+
 	sl := room.Slogger.With("func", "room.Start")
 	sl.Debug("starting")
 	ticker := time.NewTicker(room.cleanupPeriod)
@@ -159,6 +168,9 @@ func (room *Room[RoomId, PlayerID]) Stop() {
 	close(room.messages)
 	room.cancel()
 	sl.Debug("room closed", "status", "completed")
+	room.mu.Lock()
+	room.isStarted = false
+	room.mu.Unlock()
 }
 
 func (room *Room[RoomId, PlayerID]) SendMessageToPlayer(player PlayerID, message []byte) {
@@ -239,6 +251,22 @@ func (room *Room[RoomId, PlayerID]) SetStatus(status RoomStatus) {
 			delete(room.lastSeen, pid)
 			go room.opts.OnRemove(pid)
 		}
+	}
+}
+
+func (room *Room[RoomId, PlayerID]) SetRoomID(newID RoomId) {
+	room.mu.Lock()
+	defer room.mu.Unlock()
+	if room.isStarted {
+		room.Slogger.Warn("cannot change room ID after room has started")
+		return
+	}
+
+	room.ID = newID
+	if room.opts.Slogger != nil {
+		room.Slogger = room.opts.Slogger.With("room", room.ID)
+	} else {
+		room.Slogger = slog.Default().With("room", room.ID)
 	}
 }
 

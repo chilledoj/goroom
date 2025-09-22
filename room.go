@@ -43,6 +43,7 @@ type Options[PlayerID comparable] struct {
 	OnRemove     func(player PlayerID)
 	OnMessage    func(player PlayerID, message []byte)
 
+	IgnoreCleanup bool
 	CleanupPeriod time.Duration
 
 	Slogger *slog.Logger
@@ -112,7 +113,13 @@ func (room *Room[RoomId, PlayerID]) Start() {
 
 	sl := room.Slogger.With("func", "room.Start")
 	sl.Debug("starting")
-	ticker := time.NewTicker(room.cleanupPeriod)
+	period := room.cleanupPeriod
+	if room.opts.IgnoreCleanup {
+		// Ticker has to exist as we listen to it in select. Therefore, we just set the cleanup period to an
+		// excessively large time frame
+		period = time.Hour * 24
+	}
+	ticker := time.NewTicker(period)
 	defer func() {
 		ticker.Stop()
 		sl.Info("stopped")

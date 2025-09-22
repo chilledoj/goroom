@@ -111,7 +111,7 @@ func (l *Lobby) changeRoomStatus(newStatus string) {
 		return
 	}
 	l.Room.SetStatus(roomStatus)
-	slog.Info("room status changed", "lobbyId", l.ID, "status", roomStatus.String(), "ownerId", l.owner, "allocatedPlayers", l.allocatedPlayers, "players", l.GetPlayerPresence())
+	slog.Info("room status changed", "lobbyId", l.ID, "status", roomStatus.String(), "ownerId", l.owner, "allocatedPlayers", l.allocatedPlayers, "players", l.GetPlayerPresences())
 
 	data, _ := json.Marshal(l.toResponse())
 	l.Slogger.Info("sending lobby update", "lobbyId", l.ID, "data", string(data))
@@ -366,7 +366,7 @@ type lobbyResponse struct {
 }
 
 func (l *Lobby) toResponse() lobbyResponse {
-	roomPlayers := l.GetPlayerPresence()
+	roomPlayers := l.GetPlayerPresences()
 	players := make([]Player, len(roomPlayers))
 	for idx, p := range roomPlayers {
 		pl, ok := playerStore.Load(p.ID)

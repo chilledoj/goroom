@@ -86,6 +86,7 @@ func (room *Room[RoomId, PlayerID]) GetPlayerPresences() []PlayerPresence[Player
 		playerPresences = append(playerPresences, PlayerPresence[PlayerID]{
 			ID:          playerID,
 			IsConnected: p != nil,
+			LastSeen:    room.lastSeen[playerID],
 		})
 	}
 	room.mu.RUnlock()
@@ -99,6 +100,7 @@ func (room *Room[RoomId, PlayerID]) GetPlayerPresence(playerID PlayerID) PlayerP
 	return PlayerPresence[PlayerID]{
 		ID:          playerID,
 		IsConnected: connP != nil,
+		LastSeen:    room.lastSeen[playerID],
 	}
 }
 

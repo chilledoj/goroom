@@ -140,6 +140,31 @@ func TestNewRoom(t *testing.T) {
 		}
 
 	})
+	t.Run("should set the cleanup period", func(t *testing.T) {
+		handler := newMockHandler[string]()
+
+		room := NewRoom[string, string](context.Background(), "roomCleanup", Options[string]{
+			OnConnect:     handler.OnConnect,
+			OnDisconnect:  handler.OnDisconnect,
+			OnMessage:     handler.OnMessage,
+			OnRemove:      handler.OnClose,
+			CleanupPeriod: time.Second,
+		})
+		if room == nil {
+			t.Fatal("NewRoom returned nil")
+		}
+
+		// The run method is started in a goroutine, so we need to give it a moment to initialize.
+		time.Sleep(10 * time.Millisecond)
+
+		if room.cleanupPeriod != time.Second {
+			t.Errorf("expected cleanup period to be %s, got %s", time.Second, room.cleanupPeriod)
+		}
+
+		t.Log("Stopping room")
+		room.Stop()
+		t.Log("Stopped room")
+	})
 }
 
 func TestRoom_Run_Close(t *testing.T) {
@@ -177,6 +202,7 @@ func TestRoom_GetPlayerPresences(t *testing.T) {
 		room.players = make(map[string]SocketSessioner[string])
 		for _, p := range players {
 			room.players[p] = nil
+			room.lastSeen[p] = time.Now()
 		}
 
 		presence := room.GetPlayerPresences()
@@ -188,6 +214,9 @@ func TestRoom_GetPlayerPresences(t *testing.T) {
 		for _, p := range presence {
 			if p.IsConnected == true {
 				t.Fatalf("expected presence to be false for player %s", p.ID)
+			}
+			if p.LastSeen.IsZero() {
+				t.Fatalf("expected presence to have a LastSeen value for player %s", p.ID)
 			}
 		}
 
